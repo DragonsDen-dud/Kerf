@@ -3,7 +3,7 @@
  * the app shell is enough to make it work with no signal in a shop or yard.
  */
 const CACHE = "kerf-v1";
-const SHELL = ["/", "/manifest.webmanifest", "/icon.svg"];
+const SHELL = ["/", "/manifest.webmanifest", "/icon.svg", "/icon-maskable.svg"];
 
 self.addEventListener("install", (event) => {
   event.waitUntil(

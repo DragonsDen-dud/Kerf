@@ -13,9 +13,9 @@ export const metadata: Metadata = {
     title: "Kerf",
     statusBarStyle: "black-translucent",
   },
+  // The apple-touch icon comes from app/apple-icon.tsx; Next wires it up.
   icons: {
     icon: [{ url: "/icon.svg", type: "image/svg+xml" }],
-    apple: [{ url: "/apple-icon.png", sizes: "180x180" }],
   },
   formatDetection: { telephone: false },
 };
