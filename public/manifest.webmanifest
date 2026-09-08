@@ -1,13 +1,13 @@
 {
   "name": "Kerf — Material Cut List",
   "short_name": "Kerf",
-  "description": "Estimate stock material, break down the cuts on every bar, and send a PNG snapshot.",
+  "description": "Work out what stock to buy, how to cut each bar, and what it costs.",
   "start_url": "/",
   "scope": "/",
   "display": "standalone",
   "orientation": "portrait",
-  "background_color": "#0b1220",
-  "theme_color": "#0b1220",
+  "background_color": "#0a0f1a",
+  "theme_color": "#0a0f1a",
   "icons": [
     { "src": "/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" },
     { "src": "/icon-maskable.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "maskable" }

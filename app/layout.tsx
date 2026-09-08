@@ -3,9 +3,9 @@ import type { Metadata, Viewport } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "Kerf — Material Cut List",
+  title: "Kerf — Material Take-Off",
   description:
-    "Estimate stock material, break down the cuts on every bar, and send your boss a PNG snapshot.",
+    "Work out what stock to buy, how to cut each bar, and what it costs — with the working shown.",
   applicationName: "Kerf",
   manifest: "/manifest.webmanifest",
   appleWebApp: {
@@ -21,7 +21,8 @@ export const metadata: Metadata = {
 };
 
 export const viewport: Viewport = {
-  themeColor: "#0b1220",
+  // Matches the page background so the iOS status bar blends into the app.
+  themeColor: "#0a0f1a",
   width: "device-width",
   initialScale: 1,
   // The app is a fixed-width tool; letting iOS zoom on rotate breaks the layout.
