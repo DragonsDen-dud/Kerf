@@ -125,6 +125,35 @@ async function newPage(context) {
   check(lineCount === 2, `expected 2 lines, found ${lineCount}`);
   await page.screenshot({ path: `${OUT}/desktop-2-den.png` });
 
+  // Material blocks collapse to a summary and remember it.
+  await page.locator("button", { hasText: "Collapse all" }).click();
+  await page.waitForTimeout(400);
+  const summary = await page.locator("main").innerText();
+  for (const label of ["NEEDED", "TO BUY", "STOCK LENGTH", "PIECES TO CUT"]) {
+    check(summary.includes(label), `collapsed summary should show ${label}`);
+  }
+  check(
+    (await page.locator("select[id^='mat-']").count()) === 0,
+    "collapsing should hide the material editors",
+  );
+  await page.screenshot({ path: `${OUT}/desktop-2b-collapsed.png` });
+
+  await page.locator("button[aria-label^='Open ']").first().click();
+  await page.waitForTimeout(300);
+  check(
+    (await page.locator("select[id^='mat-']").count()) === 1,
+    "reopening one block should bring back just that editor",
+  );
+  // Reopening one flips the control back to "Collapse all"; use both ways.
+  await page.locator("button", { hasText: "Collapse all" }).click();
+  await page.waitForTimeout(300);
+  await page.locator("button", { hasText: "Expand all" }).click();
+  await page.waitForTimeout(300);
+  check(
+    (await page.locator("select[id^='mat-']").count()) === 2,
+    "expand all should bring every editor back",
+  );
+
   await page.locator("aside nav button", { hasText: "Cut plan" }).click();
   await page.waitForSelector("text=Bar 3");
   await page.screenshot({ path: `${OUT}/desktop-3-talons.png` });

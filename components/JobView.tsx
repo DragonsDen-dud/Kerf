@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 import LengthInput from "./LengthInput";
 import { Badge, Card, Chip, Field, Note, NumberInput, SectionTitle, Segmented, Working } from "./ui";
@@ -9,7 +9,14 @@ import { colourFor } from "@/lib/palette";
 import { formatMoney, type LineCost } from "@/lib/pricing";
 import { emptyProject, sampleProject, type Workspace } from "@/lib/store";
 import type { Material, Mode, Project, TakeoffLine } from "@/lib/types";
-import { describeStock, formatValue, unitAbbr, type UnitSystem } from "@/lib/units";
+import {
+  describeStock,
+  formatFeetInches,
+  formatLength,
+  formatValue,
+  unitAbbr,
+  type UnitSystem,
+} from "@/lib/units";
 
 const COMMON_KERFS: Array<[string, number]> = [
   ['1/16"', 0.0625],
@@ -41,6 +48,8 @@ export default function JobView({
   const { project, materials, cost } = workspace;
   const detailed = project.mode === "detailed";
   const lines = detailed ? project.lines : project.lines.slice(0, 1);
+  const { collapsed, toggle, setAll } = useCollapsed(project.id);
+  const allCollapsed = lines.length > 0 && lines.every((line) => collapsed.has(line.id));
 
   return (
     <div className="space-y-5">
@@ -71,15 +80,26 @@ export default function JobView({
       <div className="space-y-4">
         <SectionTitle
           aside={
-            detailed ? (
-              <button
-                type="button"
-                className="rounded-lg bg-white/[0.06] px-3 py-1.5 text-xs font-semibold text-slate-200 hover:bg-white/[0.1]"
-                onClick={() => workspace.addLine()}
-              >
-                + Add material
-              </button>
-            ) : null
+            <div className="flex items-center gap-2">
+              {lines.length > 1 ? (
+                <button
+                  type="button"
+                  className="rounded-lg bg-white/[0.06] px-3 py-1.5 text-xs font-semibold text-slate-200 hover:bg-white/[0.1]"
+                  onClick={() => setAll(allCollapsed ? [] : lines.map((line) => line.id))}
+                >
+                  {allCollapsed ? "Expand all" : "Collapse all"}
+                </button>
+              ) : null}
+              {detailed ? (
+                <button
+                  type="button"
+                  className="rounded-lg bg-white/[0.06] px-3 py-1.5 text-xs font-semibold text-slate-200 hover:bg-white/[0.1]"
+                  onClick={() => workspace.addLine()}
+                >
+                  + Add material
+                </button>
+              ) : null}
+            </div>
           }
         >
           {detailed ? "Materials and cut lists" : "Stock and cut list"}
@@ -104,6 +124,8 @@ export default function JobView({
             workspace={workspace}
             onOpenMaterials={onOpenMaterials}
             canRemove={detailed && project.lines.length > 1}
+            collapsed={collapsed.has(line.id)}
+            onToggleCollapse={() => toggle(line.id)}
           />
         ))}
       </div>
@@ -264,6 +286,8 @@ function LineCard({
   workspace,
   onOpenMaterials,
   canRemove,
+  collapsed,
+  onToggleCollapse,
 }: {
   line: TakeoffLine;
   index: number;
@@ -274,6 +298,8 @@ function LineCard({
   workspace: Workspace;
   onOpenMaterials: () => void;
   canRemove: boolean;
+  collapsed: boolean;
+  onToggleCollapse: () => void;
 }) {
   const [showSettings, setShowSettings] = useState(!detailed);
   const listEnd = useRef<HTMLDivElement>(null);
@@ -308,11 +334,43 @@ function LineCard({
 
   const pieces = line.parts.reduce((sum, part) => sum + (part.length > 0 ? part.qty : 0), 0);
 
+  const title = line.name || material?.name || `Material ${index + 1}`;
+
   return (
     <Card>
       <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
         <div className="flex min-w-0 flex-1 items-center gap-2">
-          {detailed ? (
+          <button
+            type="button"
+            aria-expanded={!collapsed}
+            aria-label={`${collapsed ? "Open" : "Close"} ${title}`}
+            onClick={onToggleCollapse}
+            className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-slate-400 transition hover:bg-white/[0.06] hover:text-amber-300"
+          >
+            <svg
+              className={`h-4 w-4 transition-transform ${collapsed ? "" : "rotate-90"}`}
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="3"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              aria-hidden="true"
+            >
+              <path d="m9 6 6 6-6 6" />
+            </svg>
+          </button>
+
+          {collapsed ? (
+            // Closed: the whole strip reopens it, so it is a big target.
+            <button
+              type="button"
+              onClick={onToggleCollapse}
+              className="min-w-0 flex-1 text-left"
+            >
+              <span className="block truncate text-base font-bold text-slate-50">{title}</span>
+            </button>
+          ) : detailed ? (
             <input
               className="field flex-1 py-2 font-semibold"
               value={line.name}
@@ -339,6 +397,11 @@ function LineCard({
           ) : null}
         </div>
       </div>
+
+      {collapsed ? (
+        <LineSummary line={line} entry={entry} material={material} project={project} />
+      ) : (
+        <>
 
       {/* Material picker */}
       <Field
@@ -696,8 +759,127 @@ function LineCard({
           ) : null}
         </div>
       ) : null}
+        </>
+      )}
     </Card>
   );
+}
+
+/**
+ * What a closed material block shows: enough to know whether you need to open
+ * it — what it is, how much is needed, how much to buy, and in what length.
+ */
+function LineSummary({
+  line,
+  entry,
+  material,
+  project,
+}: {
+  line: TakeoffLine;
+  entry: LineCost | undefined;
+  material: Material | null;
+  project: Project;
+}) {
+  const totals = entry?.result.totals;
+  const { unit } = project;
+  const stock =
+    unit === "imperial" ? formatFeetInches(line.stockLength) : `${formatValue(line.stockLength, unit)} ${unitAbbr(unit)}`;
+
+  return (
+    <div>
+      {material ? (
+        <p className="mb-2 truncate text-xs text-slate-500">{material.name}</p>
+      ) : (
+        <p className="mb-2 text-xs text-amber-300">No material selected — quantities only</p>
+      )}
+
+      <div className="flex flex-wrap items-baseline gap-x-6 gap-y-2">
+        <Fact label="Needed" value={totals ? formatLength(totals.netLength, unit) : "—"} />
+        <Fact
+          label="To buy"
+          value={
+            totals && totals.barsNeeded > 0
+              ? `${totals.barsNeeded} ${totals.barsNeeded === 1 ? "bar" : "bars"}`
+              : "—"
+          }
+          strong
+        />
+        <Fact label="Stock length" value={stock} />
+        <Fact label="Pieces to cut" value={totals ? String(totals.pieces) : "0"} />
+        {entry && entry.cost > 0 ? (
+          <Fact label="Cost" value={formatMoney(entry.cost, project.currency)} strong />
+        ) : null}
+      </div>
+
+      {entry && entry.result.impossible.length > 0 ? (
+        <p className="mt-2 text-xs font-semibold text-rose-300">
+          {entry.result.impossible.length} part
+          {entry.result.impossible.length === 1 ? " is" : "s are"} too long to cut — open to fix.
+        </p>
+      ) : null}
+    </div>
+  );
+}
+
+function Fact({ label, value, strong = false }: { label: string; value: string; strong?: boolean }) {
+  return (
+    <span className="flex items-baseline gap-1.5">
+      <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500">{label}</span>
+      <span
+        className={`text-sm font-bold tabular-nums ${strong ? "text-amber-300" : "text-slate-100"}`}
+      >
+        {value}
+      </span>
+    </span>
+  );
+}
+
+/**
+ * Which material blocks are closed, remembered per job so a long take-off does
+ * not reopen everything on every visit. Kept out of the saved project so it
+ * never affects the take-off itself.
+ */
+function useCollapsed(projectId: string) {
+  const storageKey = `kerf.ui.collapsed.${projectId}`;
+  const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
+
+  useEffect(() => {
+    try {
+      const raw = window.localStorage.getItem(storageKey);
+      setCollapsed(new Set(raw ? (JSON.parse(raw) as string[]) : []));
+    } catch {
+      setCollapsed(new Set());
+    }
+  }, [storageKey]);
+
+  const persist = useCallback(
+    (next: Set<string>) => {
+      setCollapsed(next);
+      try {
+        window.localStorage.setItem(storageKey, JSON.stringify([...next]));
+      } catch {
+        // Private mode: the choice just will not survive a reload.
+      }
+    },
+    [storageKey],
+  );
+
+  const toggle = useCallback(
+    (id: string) =>
+      persist(
+        (() => {
+          const next = new Set(collapsed);
+          if (next.has(id)) next.delete(id);
+          else next.add(id);
+          return next;
+        })(),
+      ),
+    [collapsed, persist],
+  );
+
+  const setAll = useCallback((ids: string[]) => persist(new Set(ids)), [persist]);
+
+  return { collapsed, toggle, setAll };
 }
 
 /* ------------------------------------------------------------------ extras */
