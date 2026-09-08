@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
+  adopt,
   emptyLibrary,
   isValidCode,
   mergeLibraries,
@@ -171,4 +172,68 @@ test("codes are read back however they were typed", () => {
 test("two codes are never the same", () => {
   const codes = new Set(Array.from({ length: 200 }, newSyncCode));
   assert.equal(codes.size, 200);
+});
+
+/* ------------------------------------------------------- adopting a merge */
+
+test("a merge that changes nothing keeps the very same object", () => {
+  // Identity matters: a new object re-arms the push timer, which syncs again,
+  // which produces another new object — a loop that never settles.
+  const mine = lib({ projects: [job("a", "Buca", "2026-05-01T00:00:00Z")], activeId: "a" });
+  assert.equal(adopt(mine, structuredClone(mine)), mine);
+});
+
+test("a merge that brings news is adopted", () => {
+  const mine = lib({ projects: [job("a", "Buca", "2026-05-01T00:00:00Z")], activeId: "a" });
+  const theirs = lib({ projects: [job("b", "Chervin", "2026-05-02T00:00:00Z")] });
+
+  const next = adopt(mine, theirs);
+  assert.notEqual(next, mine);
+  assert.equal(next.projects.length, 2);
+});
+
+/* ---------------------------------------------------- two devices talking */
+
+/**
+ * The exchange each device performs: take what the server holds, merge it with
+ * what this device holds, put the result back. Both devices must end up with
+ * everything, whatever order they go in.
+ */
+function exchange(device: Library, server: Library | null): { device: Library; server: Library } {
+  const merged = server ? mergeLibraries(device, server) : device;
+  return { device: merged, server: merged };
+}
+
+test("two devices end up with each other's jobs", () => {
+  let server: Library | null = null;
+
+  let pc = lib({ projects: [job("a", "CHECK", "2026-09-08T15:00:00Z")], activeId: "a" });
+  let phone = lib({ projects: [job("b", "Bahamas", "2026-09-08T15:01:00Z")], activeId: "b" });
+
+  ({ device: pc, server } = exchange(pc, server));
+  ({ device: phone, server } = exchange(phone, server));
+  // The PC only learns about the phone's job on its next round.
+  ({ device: pc, server } = exchange(pc, server));
+
+  assert.deepEqual(pc.projects.map((p) => p.name).sort(), ["Bahamas", "CHECK"]);
+  assert.deepEqual(phone.projects.map((p) => p.name).sort(), ["Bahamas", "CHECK"]);
+});
+
+test("a device uploads its own work, not an empty library", () => {
+  // The failure this pins down: syncing pushed a library read before the jobs
+  // were loaded, so every device reported success and sent nothing.
+  const pc = lib({ projects: [job("a", "CHECK", "2026-09-08T15:00:00Z")] });
+  const { server } = exchange(pc, null);
+
+  assert.equal(server.projects.length, 1, "the first push must carry this device's jobs");
+  assert.equal(server.projects[0].name, "CHECK");
+});
+
+test("syncing an empty device does not wipe the server", () => {
+  const server = lib({ projects: [job("a", "CHECK", "2026-09-08T15:00:00Z")] });
+  const fresh = emptyLibrary();
+
+  const after = exchange(fresh, server);
+  assert.equal(after.server.projects.length, 1, "an empty device must not erase the library");
+  assert.equal(after.device.projects.length, 1, "and it should receive the jobs");
 });

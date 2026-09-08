@@ -106,6 +106,21 @@ export function mergeLibraries(mine: Library, theirs: Library): Library {
   };
 }
 
+/**
+ * Adopt a merged library, but keep the current object when nothing actually
+ * changed.
+ *
+ * Every sync produces a fresh object even when it carries no news. Storing
+ * that unconditionally changes the library's identity, which re-arms the
+ * "push after edits settle" timer, which syncs again — a loop that never
+ * settles and bills a storage operation every few seconds. Returning the very
+ * same reference ends it.
+ */
+export function adopt(current: Library, merged: Library): Library {
+  const next = mergeLibraries(current, merged);
+  return JSON.stringify(next) === JSON.stringify(current) ? current : next;
+}
+
 export function tombstone(id: string, kind: Tombstone["kind"]): Tombstone {
   return { id, kind, at: new Date().toISOString() };
 }

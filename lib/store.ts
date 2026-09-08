@@ -1,8 +1,8 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
-import { emptyLibrary, mergeLibraries, tombstone } from "./library";
+import { adopt, emptyLibrary, tombstone } from "./library";
 import { costProject, type ProjectCost } from "./pricing";
 import {
   describeError,
@@ -488,20 +488,20 @@ export function useWorkspace(): Workspace {
 
   /* ------------------------------------------------------------------ sync */
 
+  // What to upload has to be read at the moment of upload, and a state
+  // updater cannot do that: React defers it rather than running it there and
+  // then. A ref always holds the current library, so sync uploads this
+  // device's actual work rather than whatever it had at mount.
+  const latest = useRef(library);
+  latest.current = library;
+
   const runSync = useCallback(
     async (code: string) => {
       if (!code) return;
       setSyncState({ status: "syncing" });
       try {
-        // Read the freshest local copy inside the updater rather than closing
-        // over one, so an edit made mid-request is not thrown away.
-        let mine: Library = emptyLibrary();
-        setLibrary((current) => {
-          mine = current;
-          return current;
-        });
-        const merged = await syncOnce(code, mine);
-        setLibrary((current) => mergeLibraries(current, merged));
+        const merged = await syncOnce(code, latest.current);
+        setLibrary((current) => adopt(current, merged));
         setSyncState({ status: "synced", at: nowIso() });
       } catch (error) {
         const { message, unconfigured } = describeError(error);
