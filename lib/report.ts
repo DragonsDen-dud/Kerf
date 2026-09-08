@@ -61,6 +61,11 @@ export interface ReportOptions {
   includeLayout: boolean;
   /** What closes the page: an order summary, or nothing. */
   footer: "order" | "none";
+  /**
+   * Your own wording for the headline banner. Blank uses the total, or the
+   * bar count when the job is not priced.
+   */
+  headline: string;
 }
 
 export const DEFAULT_REPORT_OPTIONS: ReportOptions = {
@@ -71,6 +76,7 @@ export const DEFAULT_REPORT_OPTIONS: ReportOptions = {
   includeWorking: true,
   includeLayout: true,
   footer: "order",
+  headline: "",
 };
 
 export function renderReport(
@@ -112,7 +118,7 @@ function paint(
   const priced = cost.total > 0;
 
   let y = drawHeader(ctx, project, cost);
-  if (options.includeHeadline) y = drawHeadline(ctx, y, project, cost, priced);
+  if (options.includeHeadline) y = drawHeadline(ctx, y, project, cost, priced, options);
   if (options.includeStats) y = drawStats(ctx, y, project, cost, priced);
   y = drawLineTable(ctx, y, project, cost, priced);
   if (options.includeRollup && priced && project.mode === "detailed") {
@@ -166,6 +172,7 @@ function drawHeadline(
   project: Project,
   cost: ProjectCost,
   priced: boolean,
+  options: ReportOptions,
 ): number {
   const h = 116;
   ctx.fillStyle = "#fffbeb";
@@ -174,13 +181,15 @@ function drawHeadline(
   ctx.fillRect(0, top, 8, h);
 
   ctx.fillStyle = ACCENT;
-  ctx.font = font(800, 40);
+  const written = options.headline.trim();
   const headline =
-    cost.totalPieces === 0
+    written ||
+    (cost.totalPieces === 0
       ? "No pieces entered"
       : priced
         ? formatMoney(cost.total, project.currency)
-        : `BUY ${cost.totalBars} ${cost.totalBars === 1 ? "BAR" : "BARS"}`;
+        : `BUY ${cost.totalBars} ${cost.totalBars === 1 ? "BAR" : "BARS"}`);
+  fitText(ctx, headline, WIDTH - PAD * 2, 40, 22);
   ctx.fillText(headline, PAD, top + 54);
 
   ctx.fillStyle = "#92400e";
@@ -684,6 +693,25 @@ function drawFooter(
 }
 
 /* ----------------------------------------------------------------- helpers */
+
+/**
+ * Set the largest font from `max` down to `min` at which `text` still fits.
+ * Custom wording is written by hand, so it cannot be assumed to be short.
+ */
+function fitText(
+  ctx: CanvasRenderingContext2D,
+  text: string,
+  maxWidth: number,
+  max: number,
+  min: number,
+) {
+  for (let size = max; size > min; size -= 1) {
+    ctx.font = font(800, size);
+    if (ctx.measureText(text).width <= maxWidth) return;
+  }
+  ctx.font = font(800, min);
+}
+
 
 function sectionTitle(ctx: CanvasRenderingContext2D, top: number, text: string): number {
   ctx.fillStyle = INK;

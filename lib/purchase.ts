@@ -42,6 +42,13 @@ export interface ManualPrice {
 }
 
 export interface PurchaseConfig {
+  /** Show the banner across the top of the sheet at all. */
+  showHeadline: boolean;
+  /**
+   * Your own wording for that banner. Blank falls back to the footage figure,
+   * which is what a buyer needs when you have nothing to add.
+   */
+  headline: string;
   /** Stock lengths (inches) shown as options, in ascending order. */
   candidates: number[];
   /** Offer a "cut to length" row for suppliers who cut to size. */
@@ -66,6 +73,8 @@ export function defaultConfig(project: Project, cost: ProjectCost): PurchaseConf
   for (const entry of cost.lines) selections[entry.line.id] = optionId(entry.line.stockLength);
   return {
     candidates,
+    showHeadline: true,
+    headline: "",
     includeByFoot: false,
     showCost: cost.lines.some((entry) => entry.price),
     showWaste: true,

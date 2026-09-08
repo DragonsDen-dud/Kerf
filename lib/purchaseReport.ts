@@ -81,7 +81,7 @@ function paint(
   ctx.lineWidth = 1;
 
   let y = drawHeader(ctx, project);
-  y = drawHeadline(ctx, y, project, plan);
+  if (config.showHeadline) y = drawHeadline(ctx, y, project, plan, config);
   if (plan.impossible.length > 0) y = drawWarning(ctx, y, plan);
   for (const line of plan.lines) y = drawLine(ctx, y, project, line, config);
   if (config.showCost && plan.cost !== null) y = drawTotal(ctx, y, project, plan);
@@ -127,6 +127,7 @@ function drawHeadline(
   top: number,
   project: Project,
   plan: PurchasePlan,
+  config: PurchaseConfig,
 ): number {
   ctx.fillStyle = "#fffbeb";
   ctx.fillRect(0, top, WIDTH, HEADLINE_H);
@@ -134,12 +135,12 @@ function drawHeadline(
   ctx.fillRect(0, top, 8, HEADLINE_H);
 
   ctx.fillStyle = ACCENT;
-  ctx.font = font(800, 42);
-  ctx.fillText(
-    `${orderLength(plan.purchasedLength, project.unit)} of material to buy`,
-    PAD,
-    top + 56,
-  );
+  const written = config.headline.trim();
+  const banner = written || `${orderLength(plan.purchasedLength, project.unit)} of material to buy`;
+  // Your own wording can run long, so the banner shrinks to fit rather than
+  // running off the edge of the sheet.
+  fitText(ctx, banner, WIDTH - PAD * 2, 42, 24);
+  ctx.fillText(banner, PAD, top + 56);
 
   ctx.fillStyle = "#92400e";
   ctx.font = font(500, 18);
@@ -484,6 +485,25 @@ function drawFooter(
 }
 
 /* ----------------------------------------------------------------- helpers */
+
+/**
+ * Set the largest font from `max` down to `min` at which `text` still fits.
+ * Custom wording is written by hand, so it cannot be assumed to be short.
+ */
+function fitText(
+  ctx: CanvasRenderingContext2D,
+  text: string,
+  maxWidth: number,
+  max: number,
+  min: number,
+) {
+  for (let size = max; size > min; size -= 1) {
+    ctx.font = font(800, size);
+    if (ctx.measureText(text).width <= maxWidth) return;
+  }
+  ctx.font = font(800, min);
+}
+
 
 function hline(ctx: CanvasRenderingContext2D, x1: number, y: number, x2: number) {
   ctx.beginPath();

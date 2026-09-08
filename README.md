@@ -149,10 +149,15 @@ The heading — job, client, reference, prepared by, and the note on the sheet �
 is edited right there and stays with the job.
 
 **Take-off report** — your full working. Every block switches on and off
-independently: the headline, the key figures, the cost build-up, where the
-prices came from, the calculations, the cutting diagrams, and an order summary
-at the bottom. Everything off but the table gives a one-page price; everything
-on gives the full working file.
+independently: the banner, the key figures, the cost build-up, where the prices
+came from, the calculations, the cutting diagrams, and an order summary at the
+bottom. Everything off but the table gives a one-page price; everything on
+gives the full working file.
+
+On both sheets the banner across the top can be switched off, or given your own
+wording — "Please quote and confirm lead time", "Budget estimate, not a
+quotation" — in place of the figure it works out for itself. Long wording
+shrinks to fit rather than running off the page.
 
 **Purchase list** — what goes to whoever buys the material. It leads with the
 **total footage to order**, then for each material shows every stock length

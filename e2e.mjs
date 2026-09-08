@@ -204,6 +204,23 @@ async function newPage(context) {
   const toggled = await page.getAttribute("img[alt='Purchase list']", "src");
   check(toggled !== withClient, "the sheet should redraw when an option is toggled");
 
+  // Your own wording replaces the banner, and the banner can go entirely.
+  await page.fill("#purchase-headline", "Please quote and confirm lead time");
+  await page.waitForTimeout(900);
+  const written = await page.getAttribute("img[alt='Purchase list']", "src");
+  check(written !== toggled, "typing a banner headline should redraw the sheet");
+
+  await page.locator("label", { hasText: "Banner across the top" }).click();
+  await page.waitForTimeout(900);
+  const noBanner = await page.getAttribute("img[alt='Purchase list']", "src");
+  check(noBanner !== written, "hiding the banner should redraw the sheet");
+  check(
+    (await page.locator("#purchase-headline").count()) === 0,
+    "the wording box should go away with the banner",
+  );
+  await page.locator("label", { hasText: "Banner across the top" }).click();
+  await page.waitForTimeout(900);
+
   // A price typed here must reach the sheet.
   await page.locator("input[aria-label^='Price for']").first().fill("3.25");
   await page.waitForTimeout(900);
@@ -220,7 +237,7 @@ async function newPage(context) {
 
   const switches = await page.locator("main").innerText();
   for (const label of [
-    "Headline",
+    "Banner across the top",
     "Key figures",
     "Cost build-up",
     "Where the prices came from",
@@ -231,10 +248,16 @@ async function newPage(context) {
     check(switches.includes(label), `expected a switch for ${label}`);
   }
 
+  // The take-off banner takes custom wording the same way.
+  await page.fill("#takeoff-headline", "Budget estimate, not a quotation");
+  await page.waitForTimeout(900);
+  const reworded = await page.getAttribute("img[alt='Take-off report']", "src");
+  check(reworded !== report, "typing a take-off headline should redraw the sheet");
+
   await page.locator("label", { hasText: "Cutting diagrams" }).click();
   await page.waitForTimeout(900);
   const trimmed = await page.getAttribute("img[alt='Take-off report']", "src");
-  check(trimmed !== report, "turning off the diagrams should redraw a shorter sheet");
+  check(trimmed !== reworded, "turning off the diagrams should redraw a shorter sheet");
   check(trimmed.length < report.length, "the sheet without diagrams should be smaller");
   await page.screenshot({ path: `${OUT}/desktop-5-report.png` });
 

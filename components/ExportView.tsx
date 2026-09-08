@@ -11,7 +11,7 @@ import {
   downloadText,
   slug,
 } from "@/lib/exports";
-import type { ProjectCost } from "@/lib/pricing";
+import { formatMoney, type ProjectCost } from "@/lib/pricing";
 import { buildPurchasePlan, defaultConfig, type PurchaseConfig } from "@/lib/purchase";
 import { renderPurchaseList } from "@/lib/purchaseReport";
 import {
@@ -221,7 +221,15 @@ export default function ExportView({
               onChange={setPurchaseConfig}
             />
           ) : (
-            <TakeoffOptions options={reportOptions} onChange={setReportOptions} />
+            <TakeoffOptions
+              options={reportOptions}
+              onChange={setReportOptions}
+              headlinePlaceholder={
+                cost.total > 0
+                  ? formatMoney(cost.total, project.currency)
+                  : `BUY ${cost.totalBars} ${cost.totalBars === 1 ? "BAR" : "BARS"}`
+              }
+            />
           )}
 
           <Card>
@@ -336,9 +344,12 @@ function HeaderFields({
 function TakeoffOptions({
   options,
   onChange,
+  headlinePlaceholder,
 }: {
   options: ReportOptions;
   onChange: (options: ReportOptions) => void;
+  /** What the banner would say on its own, shown as the placeholder. */
+  headlinePlaceholder: string;
 }) {
   const set = (changes: Partial<ReportOptions>) => onChange({ ...options, ...changes });
 
@@ -353,9 +364,27 @@ function TakeoffOptions({
         <Toggle
           checked={options.includeHeadline}
           onChange={(includeHeadline) => set({ includeHeadline })}
-          label="Headline"
-          hint="The big “buy N bars” banner and the total"
+          label="Banner across the top"
+          hint="The headline strip under the job name"
         />
+        {options.includeHeadline ? (
+          <div className="pl-7 pb-1">
+            <label className="label" htmlFor="takeoff-headline">
+              What it says
+            </label>
+            <input
+              id="takeoff-headline"
+              className="field"
+              value={options.headline}
+              placeholder={headlinePlaceholder}
+              onChange={(event) => set({ headline: event.target.value })}
+            />
+            <p className="mt-1 text-xs leading-snug text-slate-500">
+              Leave it empty for the figure above. Or write your own — “Budget estimate, not a
+              quotation”, “Revised after drawing change 08 Sep”, “Materials only, labour to follow”.
+            </p>
+          </div>
+        ) : null}
         <Toggle
           checked={options.includeStats}
           onChange={(includeStats) => set({ includeStats })}

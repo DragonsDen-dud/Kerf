@@ -231,6 +231,30 @@ export default function PurchaseOptions({
         <h3 className="label">What to show on the sheet</h3>
         <div className="space-y-2">
           <Toggle
+            checked={config.showHeadline}
+            onChange={(showHeadline) => patch({ showHeadline })}
+            label="Banner across the top"
+            hint="The headline strip under the job name."
+          />
+          {config.showHeadline ? (
+            <div className="pl-7">
+              <label className="label" htmlFor="purchase-headline">
+                What it says
+              </label>
+              <input
+                id="purchase-headline"
+                className="field"
+                value={config.headline}
+                placeholder={`${orderLength(plan.purchasedLength, project.unit)} of material to buy`}
+                onChange={(event) => patch({ headline: event.target.value })}
+              />
+              <p className="mt-1 text-xs leading-snug text-slate-500">
+                Leave it empty for the footage above. Or write your own — “Please quote and confirm
+                lead time”, “Material for BUCA — order Monday”, “Prices only, do not order yet”.
+              </p>
+            </div>
+          ) : null}
+          <Toggle
             checked={config.showCost}
             onChange={(showCost) => patch({ showCost })}
             label="Prices and costs"
