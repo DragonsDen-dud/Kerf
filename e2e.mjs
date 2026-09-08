@@ -136,6 +136,41 @@ async function newPage(context) {
   await page.screenshot({ path: `${OUT}/desktop-4-hoard-editor.png` });
   await page.locator("button", { hasText: "Close" }).click();
 
+  // --- Purchase list export ------------------------------------------------
+  await page.locator("header button", { hasText: "Export" }).click();
+  await page.waitForSelector("button:has-text('Purchase list')");
+  await page.locator("button", { hasText: "Purchase list" }).first().click();
+  await page.waitForSelector("img[alt='Purchase list']", { timeout: 20000 });
+  await page.waitForTimeout(500);
+
+  const before = await page.getAttribute("img[alt='Purchase list']", "src");
+  check(before?.startsWith("data:image/png;base64,"), "purchase list PNG was not produced");
+  fs.writeFileSync(
+    `${OUT}/purchase-list.png`,
+    Buffer.from(before.split(",")[1], "base64"),
+  );
+
+  const panel = await page.locator("div.lg\\:overflow-y-auto").innerText();
+  check(/\d+ ft bars/.test(panel), "expected length options in the purchase panel");
+  check(/best value/i.test(panel), "expected a best-value recommendation");
+  console.log("PURCHASE:", panel.slice(0, 150).replace(/\n/g, " | "));
+
+  // Ticking an option must change the rendered sheet.
+  await page.locator("label", { hasText: "Also offer" }).click();
+  await page.waitForTimeout(800);
+  const after = await page.getAttribute("img[alt='Purchase list']", "src");
+  check(after !== before, "the sheet should redraw when an option is toggled");
+
+  // A price typed here must reach the sheet.
+  await page.locator("input[aria-label^='Price for']").first().fill("3.25");
+  await page.waitForTimeout(900);
+  const priced = await page.getAttribute("img[alt='Purchase list']", "src");
+  check(priced !== after, "the sheet should redraw when a price is typed");
+  await page.screenshot({ path: `${OUT}/desktop-6-purchase.png` });
+
+  await page.locator("button", { hasText: "Close" }).click();
+  await page.waitForTimeout(300);
+
   await page.locator("aside nav button", { hasText: "Guide" }).click();
   await page.waitForSelector("text=How this works");
   const guide = await page.locator("main").innerText();

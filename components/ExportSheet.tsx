@@ -1,21 +1,32 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
-import { Modal } from "./ui";
-import { buildCsv, buildCutListCsv, buildExport, downloadText, slug } from "@/lib/exports";
+import PurchaseOptions from "./PurchaseOptions";
+import { Modal, Segmented } from "./ui";
+import {
+  buildCsv,
+  buildCutListCsv,
+  buildExport,
+  buildPurchaseCsv,
+  downloadText,
+  slug,
+} from "@/lib/exports";
 import type { ProjectCost } from "@/lib/pricing";
+import { buildPurchasePlan, defaultConfig, type PurchaseConfig } from "@/lib/purchase";
+import { renderPurchaseList } from "@/lib/purchaseReport";
 import { canvasToBlob, renderReport, type ReportOptions } from "@/lib/report";
 import type { Project } from "@/lib/types";
 
+type Sheet = "takeoff" | "purchase";
 type Status = "rendering" | "ready" | "error";
 
 /**
- * Getting the take-off out of the app and in front of someone.
+ * Two documents from one take-off.
  *
- * The PNG is the fast path (straight into the iOS share sheet); the CSV and
- * JSON are the paper trail — the JSON is the versioned shape another system
- * can ingest later.
+ * The take-off report is the full working, for your own file. The purchase
+ * list is what goes to whoever buys the material: footage, length options and
+ * a recommendation, with everything on it switchable before it is sent.
  */
 export default function ExportSheet({
   project,
@@ -26,28 +37,44 @@ export default function ExportSheet({
   cost: ProjectCost;
   onClose: () => void;
 }) {
-  const [options, setOptions] = useState<ReportOptions>({
+  const [sheet, setSheet] = useState<Sheet>("takeoff");
+  const [reportOptions, setReportOptions] = useState<ReportOptions>({
     includeLayout: true,
     includeEvidence: true,
     includeWorking: true,
   });
+  const [purchaseConfig, setPurchaseConfig] = useState<PurchaseConfig>(() =>
+    defaultConfig(project, cost),
+  );
+
   const [status, setStatus] = useState<Status>("rendering");
   const [dataUrl, setDataUrl] = useState("");
   const [message, setMessage] = useState("");
   const blobRef = useRef<Blob | null>(null);
 
+  const plan = useMemo(
+    () => buildPurchasePlan(project, cost, purchaseConfig),
+    [project, cost, purchaseConfig],
+  );
+
   const base = slug(project.name || "take-off");
-  const fileName = `${base}-${project.mode === "quick" ? "estimate" : "takeoff"}.png`;
+  const fileName =
+    sheet === "purchase"
+      ? `${base}-purchase-list.png`
+      : `${base}-${project.mode === "quick" ? "estimate" : "takeoff"}.png`;
 
   useEffect(() => {
     let cancelled = false;
     setStatus("rendering");
 
-    // Give the modal a frame to paint before the (synchronous) canvas work.
+    // Let the panel paint before the synchronous canvas work.
     const timer = setTimeout(() => {
       (async () => {
         try {
-          const canvas = renderReport(project, cost, options);
+          const canvas =
+            sheet === "purchase"
+              ? renderPurchaseList(project, plan, purchaseConfig)
+              : renderReport(project, cost, reportOptions);
           const blob = await canvasToBlob(canvas);
           if (cancelled) return;
           blobRef.current = blob;
@@ -65,14 +92,14 @@ export default function ExportSheet({
       cancelled = true;
       clearTimeout(timer);
     };
-  }, [project, cost, options]);
+  }, [sheet, project, cost, reportOptions, plan, purchaseConfig]);
 
   const share = async () => {
     const blob = blobRef.current;
     if (!blob) return;
 
     const file = new File([blob], fileName, { type: "image/png" });
-    const shareData = { files: [file], title: project.name || "Take-off", text: headline(project, cost) };
+    const shareData = { files: [file], title: project.name || "Take-off", text: headline(sheet, project, cost, plan) };
 
     if (navigator.canShare?.(shareData) && navigator.share) {
       try {
@@ -99,6 +126,25 @@ export default function ExportSheet({
     anchor.remove();
     setTimeout(() => URL.revokeObjectURL(url), 10_000);
   };
+
+  const preview =
+    status === "rendering" ? (
+      <p className="py-16 text-center text-slate-400">Building the sheet…</p>
+    ) : status === "error" ? (
+      <p className="py-16 text-center text-rose-300">{message}</p>
+    ) : (
+      <>
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img
+          src={dataUrl}
+          alt={sheet === "purchase" ? "Purchase list" : "Take-off snapshot"}
+          className="mx-auto w-full rounded-xl shadow-2xl ring-1 ring-white/10"
+        />
+        <p className="mt-3 text-center text-xs text-slate-500">
+          This is exactly what gets sent. On iPhone you can also press and hold to save or copy it.
+        </p>
+      </>
+    );
 
   return (
     <Modal
@@ -127,81 +173,116 @@ export default function ExportSheet({
             </button>
           </div>
           <div className="grid gap-2 sm:grid-cols-3">
-            <button
-              type="button"
-              className="btn-ghost w-full !min-h-10 text-xs"
-              onClick={() =>
-                downloadText(`${base}-costs.csv`, buildCsv(project, cost), "text/csv")
-              }
-            >
-              Cost CSV
-            </button>
-            <button
-              type="button"
-              className="btn-ghost w-full !min-h-10 text-xs"
-              onClick={() =>
-                downloadText(`${base}-cutlist.csv`, buildCutListCsv(project, cost), "text/csv")
-              }
-            >
-              Cut list CSV
-            </button>
-            <button
-              type="button"
-              className="btn-ghost w-full !min-h-10 text-xs"
-              onClick={() =>
-                downloadText(
-                  `${base}.json`,
-                  JSON.stringify(buildExport(project, cost), null, 2),
-                  "application/json",
-                )
-              }
-            >
-              JSON
-            </button>
+            {sheet === "purchase" ? (
+              <button
+                type="button"
+                className="btn-ghost w-full !min-h-10 text-xs sm:col-span-3"
+                onClick={() =>
+                  downloadText(
+                    `${base}-purchase-list.csv`,
+                    buildPurchaseCsv(project, plan, purchaseConfig),
+                    "text/csv",
+                  )
+                }
+              >
+                Purchase list CSV
+              </button>
+            ) : (
+              <>
+                <button
+                  type="button"
+                  className="btn-ghost w-full !min-h-10 text-xs"
+                  onClick={() => downloadText(`${base}-costs.csv`, buildCsv(project, cost), "text/csv")}
+                >
+                  Cost CSV
+                </button>
+                <button
+                  type="button"
+                  className="btn-ghost w-full !min-h-10 text-xs"
+                  onClick={() =>
+                    downloadText(
+                      `${base}-cutlist.csv`,
+                      buildCutListCsv(project, cost),
+                      "text/csv",
+                    )
+                  }
+                >
+                  Cut list CSV
+                </button>
+                <button
+                  type="button"
+                  className="btn-ghost w-full !min-h-10 text-xs"
+                  onClick={() =>
+                    downloadText(
+                      `${base}.json`,
+                      JSON.stringify(buildExport(project, cost), null, 2),
+                      "application/json",
+                    )
+                  }
+                >
+                  JSON
+                </button>
+              </>
+            )}
           </div>
         </>
       }
     >
-      <div className="mb-4 flex flex-wrap gap-4">
-        <Toggle
-          checked={options.includeLayout}
-          onChange={(includeLayout) => setOptions((o) => ({ ...o, includeLayout }))}
-          label="Include cutting diagrams"
-        />
-        <Toggle
-          checked={options.includeEvidence}
-          onChange={(includeEvidence) => setOptions((o) => ({ ...o, includeEvidence }))}
-          label="Include where the prices came from"
-        />
-        <Toggle
-          checked={options.includeWorking}
-          onChange={(includeWorking) => setOptions((o) => ({ ...o, includeWorking }))}
-          label="Include the calculations"
+      <div className="mb-4">
+        <Segmented<Sheet>
+          value={sheet}
+          onChange={setSheet}
+          options={[
+            { value: "takeoff", label: "Take-off report", hint: "Your full working" },
+            { value: "purchase", label: "Purchase list", hint: "For whoever buys it" },
+          ]}
         />
       </div>
 
-      {status === "rendering" ? (
-        <p className="py-16 text-center text-slate-400">Building the image…</p>
-      ) : status === "error" ? (
-        <p className="py-16 text-center text-rose-300">{message}</p>
-      ) : (
+      {sheet === "takeoff" ? (
         <>
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img
-            src={dataUrl}
-            alt="Take-off snapshot"
-            className="mx-auto w-full rounded-xl shadow-2xl ring-1 ring-white/10"
-          />
-          <p className="mt-3 text-center text-xs text-slate-500">
-            On iPhone you can also press and hold the image to save or copy it.
-          </p>
+          <div className="mb-4 flex flex-wrap gap-4">
+            <Check
+              checked={reportOptions.includeLayout}
+              onChange={(includeLayout) => setReportOptions((o) => ({ ...o, includeLayout }))}
+              label="Include cutting diagrams"
+            />
+            <Check
+              checked={reportOptions.includeEvidence}
+              onChange={(includeEvidence) => setReportOptions((o) => ({ ...o, includeEvidence }))}
+              label="Include where the prices came from"
+            />
+            <Check
+              checked={reportOptions.includeWorking}
+              onChange={(includeWorking) => setReportOptions((o) => ({ ...o, includeWorking }))}
+              label="Include the calculations"
+            />
+          </div>
+          {preview}
         </>
+      ) : plan.lines.length === 0 ? (
+        <p className="py-16 text-center text-slate-400">
+          Nothing to buy yet — add some parts on the Job screen.
+        </p>
+      ) : (
+        // Controls beside the sheet on a wide screen; stacked on a phone.
+        <div className="grid gap-5 lg:grid-cols-[22rem_1fr] lg:items-start">
+          <div className="lg:max-h-[60vh] lg:overflow-y-auto lg:pr-2">
+            <PurchaseOptions
+              project={project}
+              plan={plan}
+              config={purchaseConfig}
+              onChange={setPurchaseConfig}
+            />
+          </div>
+          <div className="lg:sticky lg:top-0">{preview}</div>
+        </div>
       )}
     </Modal>
   );
 }
 
-function Toggle({
+function Check({
   checked,
   onChange,
   label,
@@ -223,9 +304,18 @@ function Toggle({
   );
 }
 
-function headline(project: Project, cost: ProjectCost): string {
-  if (cost.totalPieces === 0) return project.name || "Take-off";
+function headline(
+  sheet: Sheet,
+  project: Project,
+  cost: ProjectCost,
+  plan: ReturnType<typeof buildPurchasePlan>,
+): string {
   const name = project.name ? `${project.name}: ` : "";
+  if (sheet === "purchase") {
+    const amount = plan.cost !== null ? `, ${project.currency}${plan.cost.toFixed(2)}` : "";
+    return `${name}material to buy — ${plan.totalBars} bars across ${plan.lines.length} materials${amount}.`;
+  }
+  if (cost.totalPieces === 0) return project.name || "Take-off";
   if (cost.total > 0) {
     return `${name}${cost.totalBars} bars, ${cost.totalPieces} pieces, ${project.currency}${cost.total.toFixed(2)}.`;
   }

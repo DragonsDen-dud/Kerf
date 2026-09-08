@@ -9,6 +9,12 @@
  */
 
 import { extraCost, formatDate, type ProjectCost } from "./pricing";
+import {
+  buyLength,
+  orderLength,
+  type PurchaseConfig,
+  type PurchasePlan,
+} from "./purchase";
 import { SOURCE_LABELS, type Project } from "./types";
 import { formatValue, unitAbbr } from "./units";
 
@@ -283,4 +289,65 @@ export function downloadText(filename: string, text: string, type: string) {
   anchor.click();
   anchor.remove();
   setTimeout(() => URL.revokeObjectURL(url), 10_000);
+}
+
+/**
+ * The purchase list as a spreadsheet: one row per material for the chosen
+ * option, then the alternatives underneath so the buyer can shop around.
+ */
+export function buildPurchaseCsv(
+  project: Project,
+  plan: PurchasePlan,
+  config: PurchaseConfig,
+): string {
+  const rows: string[][] = [
+    [
+      "Material",
+      "Ordering",
+      "Buy as",
+      "Qty",
+      "Total length",
+      "Waste %",
+      "Price each",
+      "Cost",
+      "Finished parts",
+      "Pieces",
+    ],
+  ];
+
+  for (const line of plan.lines) {
+    for (const option of line.options) {
+      const chosen = line.selected?.id === option.id;
+      rows.push([
+        chosen ? line.name : "",
+        chosen ? "ORDER THIS" : option.recommended ? "best value" : "alternative",
+        option.label,
+        option.kind === "cut-to-length" ? "" : String(option.bars),
+        option.fits ? orderLength(option.purchasedLength, project.unit) : "part too long",
+        option.fits ? `${((1 - option.utilisation) * 100).toFixed(0)}%` : "",
+        option.unitCost === null ? "" : option.unitCost.toFixed(2),
+        option.cost === null ? "" : option.cost.toFixed(2),
+        chosen ? buyLength(line.netLength, project.unit) : "",
+        chosen ? String(line.pieces) : "",
+      ]);
+    }
+    rows.push([]);
+  }
+
+  rows.push([
+    "TOTAL TO BUY",
+    "",
+    "",
+    String(plan.totalBars),
+    orderLength(plan.purchasedLength, project.unit),
+    "",
+    "",
+    plan.cost === null ? "" : plan.cost.toFixed(2),
+    buyLength(plan.netLength, project.unit),
+    String(plan.totalPieces),
+  ]);
+
+  if (config.note.trim()) rows.push([], ["Note", config.note.trim()]);
+
+  return rows.map((row) => row.map(csvCell).join(",")).join("\r\n");
 }

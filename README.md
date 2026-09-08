@@ -10,7 +10,8 @@ It answers four questions, in the order they matter on a job:
    goes (finished pieces, blade kerf, end trim, offcut drop).
 2. **How do I cut each bar?** — a to-scale diagram and cut list per stock bar.
 3. **What did I base that price on?** — every price keeps its receipt.
-4. **How do I get it to someone?** — one tap to a PNG, CSV or JSON.
+4. **How do I get it to someone?** — a detailed report for you, or a purchase
+   list for whoever is buying.
 
 ## The five screens
 
@@ -108,11 +109,49 @@ Values display to the nearest 1/16". Millimetres are supported via the units
 toggle (`1200`, `120cm`, `1.2m`); everything is stored internally in inches so
 switching units never reinterprets an existing take-off.
 
-## Exports
+## Two export sheets
+
+Export offers two different documents built from the same take-off.
+
+**Take-off report** — your full working: bars, costs, where the prices came
+from, the calculations, and the cut plan for every bar. This is the one for
+your own file.
+
+**Purchase list** — what goes to whoever buys the material. It leads with the
+**total footage to order**, then for each material shows every stock length
+you might buy it in, side by side:
+
+| Buy as | Qty | Total length | Waste | Each | Cost |
+| --- | --- | --- | --- | --- | --- |
+| 12 ft bars | 21 | 252 ft | 6% | $39.00 | $819.00 |
+| 16 ft bars | 16 | 256 ft | 7% | $52.00 | $832.00 |
+| **20 ft bars** ✓ | 13 | 260 ft | 9% | $65.00 | $845.00 |
+
+Each length is a genuine re-pack of your cut list, not a scaled guess, so the
+bar counts are real. The leanest option is marked **best value** — by least
+material bought, or by cost once every option has a price.
+
+Everything on it is switchable *before* it renders, with the sheet redrawing
+live as you change it:
+
+- which stock lengths your supplier might carry,
+- an optional **cut to length** row for suppliers who cut to size,
+- which option you are actually ordering, per material,
+- a **price typed on the spot** (per foot, per metre or per bar) if you know it
+  but have not saved it to your material library,
+- whether to show costs, waste percentages and what each material gets cut
+  into,
+- a free note to the supplier.
+
+Short lists are padded so a two-material order still reads as a finished sheet
+rather than a thin strip at the top of a page.
+
+## File formats
 
 | Format | For |
 | --- | --- |
-| **PNG** | The snapshot — straight into the iOS share sheet or an email |
+| **PNG** | Either sheet — straight into the iOS share sheet or an email |
+| **Purchase list CSV** | The chosen option per material, with the alternatives under it |
 | **Cost CSV** | One row per line with the price evidence columns a buyer wants |
 | **Cut list CSV** | One row per cut, for the saw |
 | **JSON** | A versioned (`kerf.takeoff` v1) shape for another system to ingest |
@@ -166,6 +205,8 @@ lib/pricing.ts  Costing, roll-up, confidence and staleness
 lib/store.ts    Persistence, with migration from the pre-pricing release
 lib/explain.ts  Plain-English explanations of every calculation
 lib/report.ts   Canvas renderer for the shareable PNG
+lib/purchase.ts Buying options: re-packs the cut list at every stock length
+lib/purchaseReport.ts  Canvas renderer for the purchase list
 lib/exports.ts  CSV and versioned JSON
 lib/attachments.ts  IndexedDB storage for proof-of-price files
 tests/          Asserted against the workbook's own figures
