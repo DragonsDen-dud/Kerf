@@ -13,18 +13,12 @@
  * bars than `sequential`.
  */
 
+import type { Part, Strategy } from "./types";
+
+export type { Part, Strategy };
+
 /** Floating-point slack, in inches. Well below any real saw tolerance. */
 const EPSILON = 1e-9;
-
-export type Strategy = "optimized" | "sequential";
-
-export interface Part {
-  id: string;
-  label: string;
-  /** Finished length in inches. */
-  length: number;
-  qty: number;
-}
 
 export interface Settings {
   /** Purchased stock length in inches. */

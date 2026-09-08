@@ -1,93 +1,164 @@
 /**
- * Smoke test: drives the real app in an iPhone-sized browser, checks the three
- * headline functions, and saves the exported PNG for inspection.
+ * Smoke test: drives the real app at phone and desktop sizes, exercises the
+ * take-off / pricing / export paths, and saves screenshots plus the exported
+ * PNG for inspection.
+ *
+ * Needs playwright: `npm i -D playwright --no-save`.
  */
 import { chromium, devices } from "playwright";
 import fs from "node:fs";
 
 const OUT = process.env.OUT_DIR || "/tmp/kerf-e2e";
+const BASE = process.env.BASE_URL || "http://localhost:3210";
+const CHROME =
+  process.env.CHROME_PATH || "/opt/pw-browsers/chromium-1194/chrome-linux/chrome";
+
 fs.mkdirSync(OUT, { recursive: true });
+const browser = await chromium.launch({ executablePath: CHROME });
+const problems = [];
 
-const browser = await chromium.launch({
-  executablePath: "/opt/pw-browsers/chromium-1194/chrome-linux/chrome",
-});
-const context = await browser.newContext({
-  ...devices["iPhone 14 Pro"],
-  isMobile: true,
-  hasTouch: true,
-});
-const page = await context.newPage();
-const errors = [];
-page.on("pageerror", (e) => errors.push(String(e)));
-page.on("console", (m) => m.type() === "error" && errors.push(m.text()));
+function check(condition, message) {
+  if (!condition) problems.push(message);
+}
 
-const url = process.env.BASE_URL || "http://localhost:3210";
-await page.goto(url, { waitUntil: "networkidle" });
+async function newPage(context) {
+  const page = await context.newPage();
+  page.on("pageerror", (error) => problems.push(`pageerror: ${error}`));
+  page.on("console", (m) => m.type() === "error" && problems.push(`console: ${m.text()}`));
+  return page;
+}
 
-// --- Function 1: material requirements -------------------------------------
-await page.waitForSelector("text=BUY");
-const banner = await page.locator("header").innerText();
-console.log("HEADER:", banner.replace(/\n/g, " | "));
-await page.screenshot({ path: `${OUT}/1-estimate.png` });
+/* ------------------------------------------------------------------- phone */
 
-// --- Function 2: per-bar breakdown -----------------------------------------
-await page.getByRole("button", { name: "Layout" }).click();
-await page.waitForSelector("text=distinct pattern");
-const layout = await page.locator("main").innerText();
-console.log("LAYOUT (first 260):", layout.slice(0, 260).replace(/\n/g, " | "));
-await page.screenshot({ path: `${OUT}/2-layout.png` });
+{
+  const context = await browser.newContext({
+    ...devices["iPhone 14 Pro"],
+    isMobile: true,
+    hasTouch: true,
+  });
+  const page = await newPage(context);
+  await page.goto(BASE, { waitUntil: "networkidle" });
 
-// --- Job tab ---------------------------------------------------------------
-await page.getByRole("button", { name: "Job" }).click();
-await page.waitForSelector("#stock-length");
+  // The Scales tab lands first and is already priced from the sample material.
+  await page.waitForSelector("text=Detailed take-off");
+  const header = await page.locator("header").innerText();
+  console.log("PHONE HEADER:", header.replace(/\n/g, " | "));
+  check(header.includes("13"), "expected 13 bars in the phone header");
+  check(header.includes("$630.50"), "expected the priced total (13 x $48.50)");
+  await page.screenshot({ path: `${OUT}/phone-1-scales.png` });
 
-// Shop-notation entry must be accepted.
-await page.fill("#stock-length", "24'");
-await page.locator("#stock-length").blur();
-await page.waitForTimeout(200);
-const stockValue = await page.inputValue("#stock-length");
-console.log("STOCK after typing 24':", stockValue);
-if (stockValue !== "288") throw new Error(`expected 288, got ${stockValue}`);
+  // The tab bar must be reachable without scrolling to the end of the page.
+  const phoneTabs = page.locator("nav.lg\\:hidden");
+  const tab = phoneTabs.locator("button", { hasText: "Talons" });
+  const box = await tab.boundingBox();
+  check(box !== null && box.y < 900, `tab bar off-screen at y=${box?.y}`);
 
-// Put it back and check the sequential strategy matches the workbook.
-await page.fill("#stock-length", "240");
-await page.locator("#stock-length").blur();
-await page.getByRole("button", { name: "Match spreadsheet" }).click();
-await page.waitForTimeout(300);
-const sequential = await page.locator("header").innerText();
-console.log("SEQUENTIAL:", sequential.replace(/\n/g, " | "));
-if (!sequential.includes("BUY 14 BARS")) throw new Error("sequential should need 14 bars");
+  await tab.click();
+  await page.waitForSelector("text=distinct pattern, text=patterns", { timeout: 5000 }).catch(() => {});
+  await page.waitForSelector("text=Bar 3");
+  await page.screenshot({ path: `${OUT}/phone-2-talons.png` });
 
-await page.getByRole("button", { name: "Optimised" }).click();
-await page.waitForTimeout(300);
-const optimised = await page.locator("header").innerText();
-if (!optimised.includes("BUY 13 BARS")) throw new Error("optimised should need 13 bars");
-console.log("OPTIMISED:", optimised.replace(/\n/g, " | "));
-await page.screenshot({ path: `${OUT}/3-job.png` });
+  await phoneTabs.locator("button", { hasText: "Hoard" }).click();
+  await page.waitForSelector("text=The Hoard");
+  const hoard = await page.locator("main").innerText();
+  check(hoard.includes("Written quote"), "expected the price citation in the Hoard");
+  check(hoard.includes("Q-10432"), "expected the quote reference in the Hoard");
+  console.log("PHONE HOARD:", hoard.slice(0, 180).replace(/\n/g, " | "));
+  await page.screenshot({ path: `${OUT}/phone-3-hoard.png` });
 
-// --- Function 3: PNG export ------------------------------------------------
-await page.getByRole("button", { name: "PNG" }).click();
-await page.waitForSelector('img[alt="Cut list snapshot"]', { timeout: 15000 });
-await page.waitForTimeout(400);
+  // Export path.
+  await page.locator("header button", { hasText: "PNG" }).click();
+  await page.waitForSelector('img[alt="Take-off snapshot"]', { timeout: 20000 });
+  await page.waitForTimeout(400);
+  const src = await page.getAttribute('img[alt="Take-off snapshot"]', "src");
+  check(src?.startsWith("data:image/png;base64,"), "PNG was not produced");
+  const buffer = Buffer.from(src.split(",")[1], "base64");
+  fs.writeFileSync(`${OUT}/report-detailed.png`, buffer);
+  console.log("REPORT PNG:", (buffer.length / 1024).toFixed(0), "KB");
+  await context.close();
+}
 
-const src = await page.getAttribute('img[alt="Cut list snapshot"]', "src");
-if (!src?.startsWith("data:image/png;base64,")) throw new Error("PNG was not produced");
-const buffer = Buffer.from(src.split(",")[1], "base64");
-fs.writeFileSync(`${OUT}/4-report.png`, buffer);
-console.log("REPORT PNG:", (buffer.length / 1024).toFixed(0), "KB");
-await page.screenshot({ path: `${OUT}/5-share-sheet.png` });
+/* ----------------------------------------------------------------- desktop */
 
-// --- Persistence -----------------------------------------------------------
-await page.getByRole("button", { name: "Done" }).click();
-await page.reload({ waitUntil: "networkidle" });
-await page.waitForSelector("text=BUY 13 BARS");
-console.log("PERSISTED: job survived a reload");
+{
+  const context = await browser.newContext({ viewport: { width: 1440, height: 900 } });
+  const page = await newPage(context);
+  await page.goto(BASE, { waitUntil: "networkidle" });
+  await page.waitForSelector("text=Detailed take-off");
 
-if (errors.length) {
-  console.error("CONSOLE ERRORS:\n" + errors.join("\n"));
-  process.exitCode = 1;
-} else {
-  console.log("No console errors.");
+  // The sidebar replaces the tab bar above the lg breakpoint.
+  check(await page.locator("aside nav").isVisible(), "desktop sidebar should be visible");
+  const phoneNav = page.locator("nav.lg\\:hidden");
+  check(!(await phoneNav.isVisible()), "phone tab bar should be hidden on desktop");
+  await page.screenshot({ path: `${OUT}/desktop-1-scales.png` });
+
+  // No horizontal overflow at desktop width.
+  const overflow = await page.evaluate(
+    () => document.documentElement.scrollWidth - document.documentElement.clientWidth,
+  );
+  check(overflow <= 0, `desktop page overflows horizontally by ${overflow}px`);
+
+  await page.locator("aside nav button", { hasText: "Den" }).click();
+  await page.waitForSelector("#job-name");
+
+  // Quick vs detailed mode switching.
+  await page.locator("button", { hasText: "Fire Breath" }).first().click();
+  await page.waitForTimeout(300);
+  let banner = await page.locator("header").innerText();
+  console.log("QUICK:", banner.replace(/\n/g, " | "));
+  check(banner.includes("$630.50"), "quick mode should still cost the first line");
+
+  await page.locator("button", { hasText: "Dragon's Eye" }).first().click();
+  await page.waitForTimeout(300);
+
+  // Markup flows through to the headline.
+  await page.fill("#pct-markup", "10");
+  await page.waitForTimeout(300);
+  banner = await page.locator("header").innerText();
+  console.log("WITH MARKUP:", banner.replace(/\n/g, " | "));
+  check(banner.includes("$693.55"), `expected $693.55 with 10% markup, got: ${banner}`);
+
+  // A second line proves the multi-material take-off.
+  await page.locator("button", { hasText: "+ Add line" }).click();
+  await page.waitForTimeout(300);
+  const lineCount = await page.locator("select[id^='mat-']").count();
+  check(lineCount === 2, `expected 2 lines, found ${lineCount}`);
+  await page.screenshot({ path: `${OUT}/desktop-2-den.png` });
+
+  await page.locator("aside nav button", { hasText: "Talons" }).click();
+  await page.waitForSelector("text=Bar 3");
+  await page.screenshot({ path: `${OUT}/desktop-3-talons.png` });
+
+  await page.locator("aside nav button", { hasText: "Hoard" }).click();
+  await page.waitForSelector("text=The Hoard");
+  await page.locator("button", { hasText: "+ Add material" }).click();
+  await page.waitForSelector("#mat-name");
+  await page.screenshot({ path: `${OUT}/desktop-4-hoard-editor.png` });
+  await page.locator("button", { hasText: "Close" }).click();
+
+  await context.close();
+}
+
+/* ------------------------------------------------------------- persistence */
+
+{
+  const context = await browser.newContext({ viewport: { width: 1280, height: 800 } });
+  const page = await newPage(context);
+  await page.goto(BASE, { waitUntil: "networkidle" });
+  await page.waitForSelector("text=Detailed take-off");
+  await page.locator("aside nav button", { hasText: "Den" }).click();
+  await page.fill("#job-name", "PERSISTED JOB");
+  await page.waitForTimeout(400);
+  await page.reload({ waitUntil: "networkidle" });
+  await page.waitForSelector("text=PERSISTED JOB");
+  console.log("PERSISTED: take-off survived a reload");
+  await context.close();
 }
 
 await browser.close();
+
+if (problems.length) {
+  console.error(`\n${problems.length} PROBLEM(S):\n- ${problems.join("\n- ")}`);
+  process.exit(1);
+}
+console.log("\nAll checks passed.");
