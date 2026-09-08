@@ -1,16 +1,19 @@
 /**
  * Sync endpoint: one blob per sync code, holding that person's whole library.
  *
- * The code is the only credential, which is why it is long, random and
- * hashed before it ever touches a file name — a leaked listing of the store
- * must not hand anyone a working code.
+ * The code is the only credential, which is why it is long, random, and
+ * hashed before it ever reaches a path — a leaked listing of the store must
+ * not hand anyone a working code.
  *
- * Storage is Vercel Blob. With no store connected the route reports itself as
- * unconfigured and the app stays device-local rather than failing oddly.
+ * Blobs are written **private**, so the library is never fetchable by URL even
+ * if someone learns the path; reads go back through the SDK with the store's
+ * own token. Storage is Vercel Blob, and with no store connected the route
+ * reports itself unconfigured so the app stays device-local rather than
+ * failing oddly.
  */
 import { createHash } from "node:crypto";
 
-import { del, head, list, put } from "@vercel/blob";
+import { del, get, put } from "@vercel/blob";
 
 export const runtime = "nodejs";
 // Sync must never be served from a cache — a stale pull would resurrect
@@ -28,8 +31,7 @@ const normalise = (code: string) => code.trim().toLowerCase().replace(/[^a-z0-9]
 
 /** The blob path never contains the code itself, only a hash of it. */
 function pathFor(code: string): string {
-  const digest = createHash("sha256").update(`kerf:${code}`).digest("hex");
-    return `libraries/${digest}.json`;
+  return `libraries/${createHash("sha256").update(`kerf:${code}`).digest("hex")}.json`;
 }
 
 function readCode(request: Request): string | null {
@@ -43,17 +45,14 @@ export async function GET(request: Request) {
   const code = readCode(request);
   if (!code) return json({ error: "bad-code" }, 400);
 
-  const path = pathFor(code);
   try {
-    // `head` needs the full URL, so find the blob by its prefix first.
-    const found = await list({ prefix: path, limit: 1 });
-    const blob = found.blobs.find((entry) => entry.pathname === path);
-    if (!blob) return json({ error: "empty" }, 404);
+    // useCache:false — the other device may have pushed seconds ago, and a
+    // cached read here would quietly undo its work on the next merge.
+    const found = await get(pathFor(code), { access: "private", useCache: false });
+    if (!found) return json({ error: "empty" }, 404);
 
-    const response = await fetch(blob.url, { cache: "no-store" });
-    if (!response.ok) return json({ error: "empty" }, 404);
-
-    return json({ envelope: await response.json(), updatedAt: blob.uploadedAt });
+    const envelope = await new Response(found.stream).json();
+    return json({ envelope, updatedAt: found.blob?.uploadedAt ?? null });
   } catch {
     return json({ error: "unavailable" }, 502);
   }
@@ -74,22 +73,25 @@ export async function PUT(request: Request) {
   } catch {
     return json({ error: "bad-body" }, 400);
   }
-  if (!parsed || typeof parsed !== "object" || (parsed as { format?: string }).format !== "kerf.library") {
+  if (
+    !parsed ||
+    typeof parsed !== "object" ||
+    (parsed as { format?: string }).format !== "kerf.library"
+  ) {
     return json({ error: "bad-body" }, 400);
   }
 
-  const path = pathFor(code);
   try {
-    // Overwriting keeps exactly one blob per code, so the store cannot grow
-    // without bound as the library is pushed over and over.
-    const blob = await put(path, body, {
-      access: "public",
+    // Overwriting in place keeps exactly one blob per code, so the store
+    // cannot grow without bound as the library is pushed over and over.
+    await put(pathFor(code), body, {
+      access: "private",
       contentType: "application/json",
       addRandomSuffix: false,
       allowOverwrite: true,
       cacheControlMaxAge: 0,
     });
-    return json({ ok: true, updatedAt: new Date().toISOString(), size: body.length, url: blob.url });
+    return json({ ok: true, updatedAt: new Date().toISOString(), size: body.length });
   } catch {
     return json({ error: "unavailable" }, 502);
   }
@@ -102,9 +104,7 @@ export async function DELETE(request: Request) {
   if (!code) return json({ error: "bad-code" }, 400);
 
   try {
-    const found = await list({ prefix: pathFor(code), limit: 1 });
-    const blob = found.blobs.find((entry) => entry.pathname === pathFor(code));
-    if (blob) await del(blob.url);
+    await del(pathFor(code));
     return json({ ok: true });
   } catch {
     return json({ error: "unavailable" }, 502);
@@ -115,7 +115,3 @@ export async function DELETE(request: Request) {
 export async function HEAD() {
   return new Response(null, { status: CONFIGURED ? 204 : 501 });
 }
-
-// `head` is imported for its types only in some builds; reference it so the
-// import cannot be dropped and then re-added by a later edit.
-void head;
