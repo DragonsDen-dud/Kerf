@@ -20,7 +20,36 @@ export const runtime = "nodejs";
 // deleted jobs on the other device.
 export const dynamic = "force-dynamic";
 
-const CONFIGURED = !!process.env.BLOB_READ_WRITE_TOKEN;
+/**
+ * Find the store's token.
+ *
+ * Connecting a Blob store normally sets `BLOB_READ_WRITE_TOKEN`, but Vercel
+ * lets you choose a prefix when connecting, which names it
+ * `<PREFIX>_BLOB_READ_WRITE_TOKEN` instead. Accepting either means a store
+ * connected with a prefix does not silently look like no store at all.
+ */
+function blobToken(): string | undefined {
+  const direct = process.env.BLOB_READ_WRITE_TOKEN;
+  if (direct) return direct;
+  const prefixed = Object.keys(process.env).find((key) =>
+    key.endsWith("BLOB_READ_WRITE_TOKEN"),
+  );
+  return prefixed ? process.env[prefixed] : undefined;
+}
+
+/**
+ * When there is no token, say which storage-related variable names the
+ * deployment can see. Names only, never values — and only on the response
+ * that already means "nothing is set up here", so it cannot leak once sync
+ * is working.
+ */
+function unconfigured() {
+  const seen = Object.keys(process.env)
+    .filter((key) => /BLOB|STORE/i.test(key))
+    .sort();
+  return json({ error: "unconfigured", seen }, 501);
+}
+
 /** Roughly 4000 jobs' worth. Anything larger is a bug, not a take-off. */
 const MAX_BYTES = 4_000_000;
 
@@ -40,7 +69,8 @@ function readCode(request: Request): string | null {
 }
 
 export async function GET(request: Request) {
-  if (!CONFIGURED) return json({ error: "unconfigured" }, 501);
+  const token = blobToken();
+  if (!token) return unconfigured();
 
   const code = readCode(request);
   if (!code) return json({ error: "bad-code" }, 400);
@@ -48,7 +78,7 @@ export async function GET(request: Request) {
   try {
     // useCache:false — the other device may have pushed seconds ago, and a
     // cached read here would quietly undo its work on the next merge.
-    const found = await get(pathFor(code), { access: "private", useCache: false });
+    const found = await get(pathFor(code), { access: "private", useCache: false, token });
     if (!found) return json({ error: "empty" }, 404);
 
     const envelope = await new Response(found.stream).json();
@@ -59,7 +89,8 @@ export async function GET(request: Request) {
 }
 
 export async function PUT(request: Request) {
-  if (!CONFIGURED) return json({ error: "unconfigured" }, 501);
+  const token = blobToken();
+  if (!token) return unconfigured();
 
   const code = readCode(request);
   if (!code) return json({ error: "bad-code" }, 400);
@@ -90,6 +121,7 @@ export async function PUT(request: Request) {
       addRandomSuffix: false,
       allowOverwrite: true,
       cacheControlMaxAge: 0,
+      token,
     });
     return json({ ok: true, updatedAt: new Date().toISOString(), size: body.length });
   } catch {
@@ -98,13 +130,14 @@ export async function PUT(request: Request) {
 }
 
 export async function DELETE(request: Request) {
-  if (!CONFIGURED) return json({ error: "unconfigured" }, 501);
+  const token = blobToken();
+  if (!token) return unconfigured();
 
   const code = readCode(request);
   if (!code) return json({ error: "bad-code" }, 400);
 
   try {
-    await del(pathFor(code));
+    await del(pathFor(code), { token });
     return json({ ok: true });
   } catch {
     return json({ error: "unavailable" }, 502);
@@ -113,5 +146,5 @@ export async function DELETE(request: Request) {
 
 /** Lets the app show "sync is available" without needing a code first. */
 export async function HEAD() {
-  return new Response(null, { status: CONFIGURED ? 204 : 501 });
+  return new Response(null, { status: blobToken() ? 204 : 501 });
 }
