@@ -159,11 +159,7 @@ export default function ExportView({
     <div className="space-y-5">
       <Card>
         <SectionTitle>Which sheet</SectionTitle>
-        <Note>
-          Two documents built from the same job. Everything you change below redraws the sheet
-          straight away — what you see is exactly what gets sent, so you can also just screenshot
-          it.
-        </Note>
+        <Note>What you see below is the finished image. Change anything and it redraws.</Note>
         <div className="mt-3">
           <Segmented<Sheet>
             value={sheet}
