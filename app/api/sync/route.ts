@@ -21,21 +21,34 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 /**
- * Find the store's token.
+ * Work out how this deployment is allowed to reach the store.
  *
- * Connecting a Blob store normally sets `BLOB_READ_WRITE_TOKEN`, but Vercel
- * lets you choose a prefix when connecting, which names it
- * `<PREFIX>_BLOB_READ_WRITE_TOKEN` instead. Accepting either means a store
- * connected with a prefix does not silently look like no store at all.
+ * A store connected to a Vercel project authenticates by **OIDC**: the
+ * connection injects `BLOB_STORE_ID`, and the SDK pairs it with the runtime's
+ * own `VERCEL_OIDC_TOKEN`. There is no read-write token in that setup, and
+ * passing one anyway would override OIDC — so the token is only ever supplied
+ * when it genuinely exists, which is the case outside Vercel (local `.env`) or
+ * when the store was wired up by hand.
  */
-function blobToken(): string | undefined {
+function blobAuth(): { ok: boolean; token?: string } {
   const direct = process.env.BLOB_READ_WRITE_TOKEN;
-  if (direct) return direct;
+  if (direct) return { ok: true, token: direct };
+
+  // Connecting with a prefix names it <PREFIX>_BLOB_READ_WRITE_TOKEN.
   const prefixed = Object.keys(process.env).find((key) =>
     key.endsWith("BLOB_READ_WRITE_TOKEN"),
   );
-  return prefixed ? process.env[prefixed] : undefined;
+  if (prefixed && process.env[prefixed]) return { ok: true, token: process.env[prefixed] };
+
+  // OIDC: hand the SDK nothing and let it resolve the identity itself.
+  if (process.env.BLOB_STORE_ID) return { ok: true };
+
+  return { ok: false };
 }
+
+/** Only pass a token when there is one; otherwise OIDC must be left alone. */
+const auth = (credentials: { token?: string }) =>
+  credentials.token ? { token: credentials.token } : {};
 
 /**
  * When there is no token, say which storage-related variable names the
@@ -69,8 +82,8 @@ function readCode(request: Request): string | null {
 }
 
 export async function GET(request: Request) {
-  const token = blobToken();
-  if (!token) return unconfigured();
+  const credentials = blobAuth();
+  if (!credentials.ok) return unconfigured();
 
   const code = readCode(request);
   if (!code) return json({ error: "bad-code" }, 400);
@@ -78,7 +91,11 @@ export async function GET(request: Request) {
   try {
     // useCache:false — the other device may have pushed seconds ago, and a
     // cached read here would quietly undo its work on the next merge.
-    const found = await get(pathFor(code), { access: "private", useCache: false, token });
+    const found = await get(pathFor(code), {
+      access: "private",
+      useCache: false,
+      ...auth(credentials),
+    });
     if (!found) return json({ error: "empty" }, 404);
 
     const envelope = await new Response(found.stream).json();
@@ -89,8 +106,8 @@ export async function GET(request: Request) {
 }
 
 export async function PUT(request: Request) {
-  const token = blobToken();
-  if (!token) return unconfigured();
+  const credentials = blobAuth();
+  if (!credentials.ok) return unconfigured();
 
   const code = readCode(request);
   if (!code) return json({ error: "bad-code" }, 400);
@@ -121,7 +138,7 @@ export async function PUT(request: Request) {
       addRandomSuffix: false,
       allowOverwrite: true,
       cacheControlMaxAge: 0,
-      token,
+      ...auth(credentials),
     });
     return json({ ok: true, updatedAt: new Date().toISOString(), size: body.length });
   } catch {
@@ -130,14 +147,14 @@ export async function PUT(request: Request) {
 }
 
 export async function DELETE(request: Request) {
-  const token = blobToken();
-  if (!token) return unconfigured();
+  const credentials = blobAuth();
+  if (!credentials.ok) return unconfigured();
 
   const code = readCode(request);
   if (!code) return json({ error: "bad-code" }, 400);
 
   try {
-    await del(pathFor(code), { token });
+    await del(pathFor(code), auth(credentials));
     return json({ ok: true });
   } catch {
     return json({ error: "unavailable" }, 502);
@@ -146,5 +163,5 @@ export async function DELETE(request: Request) {
 
 /** Lets the app show "sync is available" without needing a code first. */
 export async function HEAD() {
-  return new Response(null, { status: blobToken() ? 204 : 501 });
+  return new Response(null, { status: blobAuth().ok ? 204 : 501 });
 }
