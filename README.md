@@ -13,15 +13,38 @@ It answers four questions, in the order they matter on a job:
 4. **How do I get it to someone?** — a detailed report for you, or a purchase
    list for whoever is buying.
 
-## The five screens
+## The screens
 
-| Screen | What it is |
+| Screen | What it is for |
 | --- | --- |
-| **Job** | Job details, stock & saw settings, and the pieces to cut |
-| **Estimate** | What to buy, what it costs, and the sums behind both |
-| **Cut plan** | How to cut each bar, in order |
-| **Materials** | Prices, and the proof behind each one |
-| **Guide** | How every calculation works, in plain English |
+| **Jobs** | Every job you have started — open one, start another, park the finished ones |
+| **Take-off** | Enter the materials and the pieces to cut |
+| **Costs** | What it comes to, and how that was worked out |
+| **Export** | Build the purchase list or the take-off sheet |
+| **Cut plan** | How to cut each bar, for the saw |
+| **Materials** | Your prices, and the proof behind them |
+| **Guide** | What every number on the screens means |
+
+Each screen says what it is for in one line at the top. On a phone the first
+four are the tab bar and the rest sit under **More**; on a desktop they are all
+in the sidebar.
+
+## Jobs, and keeping them
+
+Every job is kept: name, client, reference, its own materials, cut list,
+pricing and export settings. Jobs carry a status — enquiry, quoted, won,
+ordered, done — can be searched by job, client or reference, duplicated as the
+starting point for the next one, and archived rather than deleted.
+
+**Phone and PC.** Turn on sync on one device, type the same code on the other,
+and both share one library. Merging is per-record, newest edit wins, with
+deletes recorded so a job deleted on one device does not come back from the
+other; the job you are looking at never moves under you. `tests/library.test.ts`
+covers the merge, including the case where a job is edited on one device after
+being deleted on the other — the edit survives.
+
+Sync needs a Vercel Blob store connected to the deployment. Without one the app
+is device-local and says so; nothing else changes.
 
 Two levels of detail, switched on the Job screen:
 
@@ -82,6 +105,12 @@ Ported from the workbook's cutting engine (columns `P:U`) and Step 3 block
 - Usable length per bar is `stock length − end trim`.
 - A piece is impossible when `length + kerf > usable length`.
 
+Blade loss and end trim are computed exactly but are not given rows of their
+own on screen: on a real job they are a fraction of a percent, and listing them
+separately buries the number that matters. They are rolled into **left over**
+— the short end of each bar once nothing else will fit in it, which you have
+paid for either way.
+
 Two packing strategies, per line:
 
 | Strategy | Behaviour | On the sample job |
@@ -109,13 +138,21 @@ Values display to the nearest 1/16". Millimetres are supported via the units
 toggle (`1200`, `120cm`, `1.2m`); everything is stored internally in inches so
 switching units never reinterprets an existing take-off.
 
-## Two export sheets
+## The export screen
 
-Export offers two different documents built from the same take-off.
+Export is a screen, not a dialog, and the preview on it **is** the finished
+image — it is redrawn on every change, so ticking a box, typing a price or
+editing the heading shows you the document immediately. Screenshot it or save
+the PNG; either way you get what you are looking at.
 
-**Take-off report** — your full working: bars, costs, where the prices came
-from, the calculations, and the cut plan for every bar. This is the one for
-your own file.
+The heading — job, client, reference, prepared by, and the note on the sheet —
+is edited right there and stays with the job.
+
+**Take-off report** — your full working. Every block switches on and off
+independently: the headline, the key figures, the cost build-up, where the
+prices came from, the calculations, the cutting diagrams, and an order summary
+at the bottom. Everything off but the table gives a one-page price; everything
+on gives the full working file.
 
 **Purchase list** — what goes to whoever buys the material. It leads with the
 **total footage to order**, then for each material shows every stock length
@@ -154,7 +191,7 @@ rather than a thin strip at the top of a page.
 | **Purchase list CSV** | The chosen option per material, with the alternatives under it |
 | **Cost CSV** | One row per line with the price evidence columns a buyer wants |
 | **Cut list CSV** | One row per cut, for the saw |
-| **JSON** | A versioned (`kerf.takeoff` v1) shape for another system to ingest |
+| **JSON** | A versioned (`kerf.takeoff` v1) shape for another system to ingest, via `buildExport` |
 
 The JSON is the intended seam for a project-tracking integration: it is flat,
 versioned, and every priced row carries its source, so the receiving system
@@ -200,6 +237,8 @@ environment variables and no backend are required.
 app/            Next.js App Router shell, metadata, PWA wiring
 components/     The five screens, the export sheet, shared inputs
 lib/types.ts    Domain model: Project, TakeoffLine, Material, PriceRecord
+lib/library.ts  The job library, and how two devices merge one
+lib/sync.ts     Client half of sync; app/api/sync is the server half
 lib/pack.ts     The cutting-stock engine (the port of the workbook)
 lib/pricing.ts  Costing, roll-up, confidence and staleness
 lib/store.ts    Persistence, with migration from the pre-pricing release

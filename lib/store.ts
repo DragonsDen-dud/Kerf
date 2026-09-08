@@ -2,7 +2,16 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 
+import { emptyLibrary, mergeLibraries, tombstone } from "./library";
 import { costProject, type ProjectCost } from "./pricing";
+import {
+  describeError,
+  loadCode,
+  storeCode,
+  syncAvailable,
+  syncOnce,
+  type SyncState,
+} from "./sync";
 import {
   SCHEMA_VERSION,
   emptyLine,
@@ -13,15 +22,22 @@ import {
   type Extra,
   type Material,
   type Mode,
+  type JobStatus,
+  type Library,
   type Part,
   type PriceRecord,
   type Project,
   type TakeoffLine,
+  type Tombstone,
 } from "./types";
 
+const LIBRARY_KEY = "kerf.library.v3";
 const PROJECT_KEY = "kerf.project.v2";
 const HOARD_KEY = "kerf.hoard.v2";
 const LEGACY_KEY = "kerf.job.v1";
+
+/** How long after the last edit the library is pushed to the other device. */
+const SYNC_DEBOUNCE_MS = 4_000;
 
 /* ------------------------------------------------------------- seed values */
 
@@ -70,6 +86,8 @@ export function sampleProject(): Project {
     unit: "imperial",
     currency: "$",
     mode: "detailed",
+    status: "enquiry",
+    archived: false,
     contingencyPct: 0,
     markupPct: 0,
     taxPct: 0,
@@ -159,6 +177,8 @@ function reviveLine(raw: unknown): TakeoffLine {
   };
 }
 
+const STATUSES: JobStatus[] = ["enquiry", "quoted", "won", "ordered", "done"];
+
 function reviveProject(raw: unknown): Project | null {
   if (!raw || typeof raw !== "object") return null;
   const p = raw as Partial<Project>;
@@ -191,6 +211,8 @@ function reviveProject(raw: unknown): Project | null {
     contingencyPct: num(p.contingencyPct),
     markupPct: num(p.markupPct),
     taxPct: num(p.taxPct),
+    status: STATUSES.includes(p.status as JobStatus) ? (p.status as JobStatus) : "enquiry",
+    archived: p.archived === true,
     createdAt: str(p.createdAt) || nowIso(),
     updatedAt: str(p.updatedAt) || nowIso(),
   };
@@ -302,19 +324,124 @@ function migrateLegacy(raw: unknown): { project: Project; materials: Material[] 
   return { project, materials: [material] };
 }
 
+/* ----------------------------------------------------------------- library */
+
+function reviveLibrary(raw: unknown): Library | null {
+  if (!raw || typeof raw !== "object") return null;
+  const l = raw as Partial<Library>;
+  if (!Array.isArray(l.projects)) return null;
+
+  const projects = l.projects
+    .map(reviveProject)
+    .filter((project): project is Project => project !== null);
+
+  return {
+    schemaVersion: SCHEMA_VERSION,
+    projects,
+    materials: Array.isArray(l.materials) ? l.materials.map(reviveMaterial) : [],
+    tombstones: Array.isArray(l.tombstones)
+      ? l.tombstones.flatMap((raw) => {
+          const t = (raw ?? {}) as Partial<Tombstone>;
+          const id = str(t.id);
+          if (!id) return [];
+          return [
+            {
+              id,
+              kind: t.kind === "material" ? ("material" as const) : ("project" as const),
+              at: str(t.at) || nowIso(),
+            },
+          ];
+        })
+      : [],
+    activeId: typeof l.activeId === "string" ? l.activeId : projects[0]?.id ?? null,
+    updatedAt: str(l.updatedAt) || nowIso(),
+  };
+}
+
+/**
+ * First run on a device that has a v2 single project, or a v1 job, turns it
+ * into a one-job library. Nobody loses a take-off to an upgrade.
+ */
+function loadLibrary(): { library: Library; migrated: boolean } {
+  const stored = reviveLibrary(read(LIBRARY_KEY));
+  if (stored) return { library: stored, migrated: false };
+
+  const v2 = reviveProject(read(PROJECT_KEY));
+  if (v2) {
+    const materials = read(HOARD_KEY);
+    return {
+      library: {
+        ...emptyLibrary(),
+        projects: [v2],
+        materials: Array.isArray(materials) ? materials.map(reviveMaterial) : [],
+        activeId: v2.id,
+        updatedAt: nowIso(),
+      },
+      migrated: false,
+    };
+  }
+
+  const legacy = migrateLegacy(read(LEGACY_KEY));
+  if (legacy) {
+    return {
+      library: {
+        ...emptyLibrary(),
+        projects: [legacy.project],
+        materials: legacy.materials,
+        activeId: legacy.project.id,
+        updatedAt: nowIso(),
+      },
+      migrated: true,
+    };
+  }
+
+  // Nothing stored at all: seed the worked example so the app opens on
+  // something real rather than an empty form.
+  const sample = sampleProject();
+  return {
+    library: {
+      ...emptyLibrary(),
+      projects: [sample],
+      materials: sampleMaterials(),
+      activeId: sample.id,
+      updatedAt: nowIso(),
+    },
+    migrated: false,
+  };
+}
+
 /* -------------------------------------------------------------------- hook */
+
+export interface SyncControls {
+  state: SyncState;
+  code: string;
+  /** True once a backend answered — sync can be turned on at all. */
+  configured: boolean;
+  connect: (code: string) => void;
+  disconnect: () => void;
+  syncNow: () => void;
+}
 
 export interface Workspace {
   project: Project;
+  /** Every job, newest edit first, archived ones last. */
+  projects: Project[];
   materials: Material[];
   cost: ProjectCost;
   loaded: boolean;
   /** True when the stored data came from the pre-pricing release. */
   migrated: boolean;
+  sync: SyncControls;
 
   patchProject: (changes: Partial<Project>) => void;
   setMode: (mode: Mode) => void;
   replaceProject: (project: Project) => void;
+
+  newProject: (defaults?: Partial<Project>) => string;
+  openProject: (id: string) => void;
+  duplicateProject: (id: string) => string | null;
+  removeProject: (id: string) => void;
+  patchProjectById: (id: string, changes: Partial<Project>) => void;
 
   addLine: () => string;
   patchLine: (id: string, changes: Partial<TakeoffLine>) => void;
@@ -337,41 +464,200 @@ export interface Workspace {
 }
 
 export function useWorkspace(): Workspace {
-  const [project, setProject] = useState<Project>(sampleProject);
-  const [materials, setMaterials] = useState<Material[]>(sampleMaterials);
+  const [library, setLibrary] = useState<Library>(emptyLibrary);
   const [loaded, setLoaded] = useState(false);
   const [migrated, setMigrated] = useState(false);
 
+  const [syncCode, setSyncCode] = useState("");
+  const [syncState, setSyncState] = useState<SyncState>({ status: "off" });
+  const [configured, setConfigured] = useState(false);
+
   // Hydrate after mount so server and client markup agree.
   useEffect(() => {
-    const storedProject = reviveProject(read(PROJECT_KEY));
-    const storedMaterials = read(HOARD_KEY);
-
-    if (storedProject) {
-      setProject(storedProject);
-      if (Array.isArray(storedMaterials)) setMaterials(storedMaterials.map(reviveMaterial));
-    } else {
-      const legacy = migrateLegacy(read(LEGACY_KEY));
-      if (legacy) {
-        setProject(legacy.project);
-        setMaterials(legacy.materials);
-        setMigrated(true);
-      }
-    }
+    const { library: stored, migrated: wasMigrated } = loadLibrary();
+    setLibrary(stored);
+    setMigrated(wasMigrated);
+    setSyncCode(loadCode());
     setLoaded(true);
+    void syncAvailable().then(setConfigured);
   }, []);
 
   useEffect(() => {
-    if (loaded) write(PROJECT_KEY, project);
-  }, [project, loaded]);
+    if (loaded) write(LIBRARY_KEY, library);
+  }, [library, loaded]);
 
+  /* ------------------------------------------------------------------ sync */
+
+  const runSync = useCallback(
+    async (code: string) => {
+      if (!code) return;
+      setSyncState({ status: "syncing" });
+      try {
+        // Read the freshest local copy inside the updater rather than closing
+        // over one, so an edit made mid-request is not thrown away.
+        let mine: Library = emptyLibrary();
+        setLibrary((current) => {
+          mine = current;
+          return current;
+        });
+        const merged = await syncOnce(code, mine);
+        setLibrary((current) => mergeLibraries(current, merged));
+        setSyncState({ status: "synced", at: nowIso() });
+      } catch (error) {
+        const { message, unconfigured } = describeError(error);
+        setSyncState(unconfigured ? { status: "unconfigured" } : { status: "error", message });
+      }
+    },
+    [],
+  );
+
+  // Push on a debounce after edits settle, so a burst of typing is one upload.
   useEffect(() => {
-    if (loaded) write(HOARD_KEY, materials);
-  }, [materials, loaded]);
+    if (!loaded || !syncCode) return;
+    const timer = setTimeout(() => void runSync(syncCode), SYNC_DEBOUNCE_MS);
+    return () => clearTimeout(timer);
+  }, [library, loaded, syncCode, runSync]);
 
-  const edit = useCallback((mutate: (draft: Project) => Project) => {
-    setProject((current) => ({ ...mutate(current), updatedAt: nowIso() }));
+  // Coming back to the tab is the moment the other device's work matters.
+  useEffect(() => {
+    if (!syncCode) return;
+    const onFocus = () => void runSync(syncCode);
+    window.addEventListener("focus", onFocus);
+    return () => window.removeEventListener("focus", onFocus);
+  }, [syncCode, runSync]);
+
+  const sync: SyncControls = useMemo(
+    () => ({
+      state: syncCode ? syncState : { status: "off" },
+      code: syncCode,
+      configured,
+      connect: (code: string) => {
+        storeCode(code);
+        setSyncCode(code);
+        void runSync(code);
+      },
+      disconnect: () => {
+        storeCode("");
+        setSyncCode("");
+        setSyncState({ status: "off" });
+      },
+      syncNow: () => void runSync(syncCode),
+    }),
+    [syncCode, syncState, configured, runSync],
+  );
+
+  /* ----------------------------------------------------------- library edits */
+
+  const editLibrary = useCallback((mutate: (draft: Library) => Library) => {
+    setLibrary((current) => ({ ...mutate(current), updatedAt: nowIso() }));
   }, []);
+
+  const projects = useMemo(() => {
+    const ordered = [...library.projects].sort(
+      (a, b) => Date.parse(b.updatedAt) - Date.parse(a.updatedAt),
+    );
+    return [...ordered.filter((p) => !p.archived), ...ordered.filter((p) => p.archived)];
+  }, [library.projects]);
+
+  // A library can be empty for a moment after the last job is deleted; the
+  // views all assume a project exists, so stand one in.
+  const fallback = useMemo(() => emptyProject("detailed"), []);
+  const project =
+    library.projects.find((p) => p.id === library.activeId) ?? library.projects[0] ?? fallback;
+
+  const edit = useCallback(
+    (mutate: (draft: Project) => Project) =>
+      editLibrary((lib) => ({
+        ...lib,
+        projects: lib.projects.map((p) =>
+          p.id === project.id ? { ...mutate(p), updatedAt: nowIso() } : p,
+        ),
+      })),
+    [editLibrary, project.id],
+  );
+
+  const newProject = useCallback(
+    (defaults?: Partial<Project>) => {
+      const created: Project = { ...emptyProject("detailed"), ...defaults, id: newId("prj") };
+      editLibrary((lib) => ({
+        ...lib,
+        projects: [created, ...lib.projects],
+        activeId: created.id,
+      }));
+      return created.id;
+    },
+    [editLibrary],
+  );
+
+  const openProject = useCallback(
+    (id: string) => editLibrary((lib) => ({ ...lib, activeId: id })),
+    [editLibrary],
+  );
+
+  const duplicateProject = useCallback(
+    (id: string) => {
+      const source = library.projects.find((p) => p.id === id);
+      if (!source) return null;
+      const copy: Project = {
+        ...source,
+        id: newId("prj"),
+        name: source.name ? `${source.name} (copy)` : "",
+        status: "enquiry",
+        archived: false,
+        createdAt: nowIso(),
+        updatedAt: nowIso(),
+        // Fresh ids throughout, or editing the copy would edit the original.
+        lines: source.lines.map((line) => ({
+          ...line,
+          id: newId("ln"),
+          parts: line.parts.map((part) => ({ ...part, id: newId("pt") })),
+        })),
+        extras: source.extras.map((extra) => ({ ...extra, id: newId("ex") })),
+      };
+      editLibrary((lib) => ({ ...lib, projects: [copy, ...lib.projects], activeId: copy.id }));
+      return copy.id;
+    },
+    [editLibrary, library.projects],
+  );
+
+  const removeProject = useCallback(
+    (id: string) =>
+      editLibrary((lib) => {
+        const projects = lib.projects.filter((p) => p.id !== id);
+        return {
+          ...lib,
+          projects,
+          tombstones: [...lib.tombstones, tombstone(id, "project")],
+          activeId: lib.activeId === id ? projects[0]?.id ?? null : lib.activeId,
+        };
+      }),
+    [editLibrary],
+  );
+
+  const patchProjectById = useCallback(
+    (id: string, changes: Partial<Project>) =>
+      editLibrary((lib) => ({
+        ...lib,
+        projects: lib.projects.map((p) =>
+          p.id === id ? { ...p, ...changes, updatedAt: nowIso() } : p,
+        ),
+      })),
+    [editLibrary],
+  );
+
+  const replaceProject = useCallback(
+    (next: Project) =>
+      editLibrary((lib) => ({
+        ...lib,
+        projects: lib.projects.some((p) => p.id === next.id)
+          ? lib.projects.map((p) => (p.id === next.id ? { ...next, updatedAt: nowIso() } : p))
+          : [{ ...next, updatedAt: nowIso() }, ...lib.projects],
+        activeId: next.id,
+      })),
+    [editLibrary],
+  );
+
+  /* ------------------------------------------------------------ job editing */
 
   const patchProject = useCallback(
     (changes: Partial<Project>) => edit((p) => ({ ...p, ...changes })),
@@ -494,54 +780,77 @@ export function useWorkspace(): Workspace {
     [edit],
   );
 
-  const saveMaterial = useCallback((material: Material) => {
-    setMaterials((current) => {
-      const stamped = { ...material, updatedAt: nowIso() };
-      const index = current.findIndex((m) => m.id === material.id);
-      if (index === -1) return [...current, stamped];
-      const next = [...current];
-      next[index] = stamped;
-      return next;
-    });
-  }, []);
+  /* -------------------------------------------------------------- materials */
 
-  const removeMaterial = useCallback((id: string) => {
-    setMaterials((current) => current.filter((m) => m.id !== id));
-    // Leave the line's materialId dangling rather than silently rewriting the
-    // take-off; the UI surfaces it as "this material has been deleted".
-  }, []);
+  const saveMaterial = useCallback(
+    (material: Material) =>
+      editLibrary((lib) => {
+        const stamped = { ...material, updatedAt: nowIso() };
+        const index = lib.materials.findIndex((m) => m.id === material.id);
+        if (index === -1) return { ...lib, materials: [...lib.materials, stamped] };
+        const materials = [...lib.materials];
+        materials[index] = stamped;
+        return { ...lib, materials };
+      }),
+    [editLibrary],
+  );
 
-  const addPrice = useCallback((materialId: string, price: PriceRecord) => {
-    setMaterials((current) =>
-      current.map((m) =>
-        m.id === materialId
-          ? { ...m, prices: [price, ...m.prices], updatedAt: nowIso() }
-          : m,
-      ),
-    );
-  }, []);
+  const removeMaterial = useCallback(
+    (id: string) =>
+      // The line's materialId is left dangling rather than silently rewriting
+      // the take-off; the UI surfaces it as "this material has been deleted".
+      editLibrary((lib) => ({
+        ...lib,
+        materials: lib.materials.filter((m) => m.id !== id),
+        tombstones: [...lib.tombstones, tombstone(id, "material")],
+      })),
+    [editLibrary],
+  );
 
-  const removePrice = useCallback((materialId: string, priceId: string) => {
-    setMaterials((current) =>
-      current.map((m) =>
-        m.id === materialId
-          ? { ...m, prices: m.prices.filter((p) => p.id !== priceId), updatedAt: nowIso() }
-          : m,
-      ),
-    );
-  }, []);
+  const mapMaterial = useCallback(
+    (id: string, mutate: (material: Material) => Material) =>
+      editLibrary((lib) => ({
+        ...lib,
+        materials: lib.materials.map((m) =>
+          m.id === id ? { ...mutate(m), updatedAt: nowIso() } : m,
+        ),
+      })),
+    [editLibrary],
+  );
 
-  const cost = useMemo(() => costProject(project, materials), [project, materials]);
+  const addPrice = useCallback(
+    (materialId: string, price: PriceRecord) =>
+      mapMaterial(materialId, (m) => ({ ...m, prices: [price, ...m.prices] })),
+    [mapMaterial],
+  );
+
+  const removePrice = useCallback(
+    (materialId: string, priceId: string) =>
+      mapMaterial(materialId, (m) => ({
+        ...m,
+        prices: m.prices.filter((p) => p.id !== priceId),
+      })),
+    [mapMaterial],
+  );
+
+  const cost = useMemo(() => costProject(project, library.materials), [project, library.materials]);
 
   return {
     project,
-    materials,
+    projects,
+    materials: library.materials,
     cost,
     loaded,
     migrated,
+    sync,
     patchProject,
     setMode,
-    replaceProject: setProject,
+    replaceProject,
+    newProject,
+    openProject,
+    duplicateProject,
+    removeProject,
+    patchProjectById,
     addLine,
     patchLine,
     removeLine,

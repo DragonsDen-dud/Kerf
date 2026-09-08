@@ -530,24 +530,30 @@ function LineCard({
               )} ${u} usable.`}
             />
 
-            <div>
-              <Segmented
-                label="How pieces are fitted onto bars"
-                value={line.strategy}
-                onChange={(strategy) => workspace.patchLine(line.id, { strategy })}
-                options={[
-                  { value: "optimized", label: "Optimised", hint: "Back-fills earlier bars" },
-                  { value: "sequential", label: "Match spreadsheet", hint: "One bar at a time" },
-                ]}
-              />
-              <div className="mt-2">
-                <Note>
-                  {line.strategy === "optimized"
-                    ? "Short pieces fill the gaps left by long ones, so this usually needs fewer bars. Recommended."
-                    : "Cuts straight down the list and starts a new bar as soon as something does not fit. Reproduces the original spreadsheet exactly, for reconciling."}
-                </Note>
+            {/* Almost nobody changes this, so it stays folded away rather
+                than taking up a slot next to the settings that matter. */}
+            <details className="rounded-xl border border-white/10 bg-white/[0.02] px-3 py-2">
+              <summary className="cursor-pointer list-none text-xs font-bold uppercase tracking-wider text-slate-500 hover:text-amber-300">
+                Advanced: how pieces are fitted onto bars
+              </summary>
+              <div className="pb-2 pt-3">
+                <Segmented
+                  value={line.strategy}
+                  onChange={(strategy) => workspace.patchLine(line.id, { strategy })}
+                  options={[
+                    { value: "optimized", label: "Best fit", hint: "Fewest bars — use this" },
+                    { value: "sequential", label: "In order", hint: "Matches the old spreadsheet" },
+                  ]}
+                />
+                <div className="mt-2">
+                  <Note>
+                    {line.strategy === "optimized"
+                      ? "Short pieces fill the gaps left by long ones, so this usually needs fewer bars. Leave it here."
+                      : "Cuts straight down the list and starts a new bar as soon as something does not fit. Only for checking against the original spreadsheet — it will cost you bars."}
+                  </Note>
+                </div>
               </div>
-            </div>
+            </details>
 
             {entry && entry.result.totals.pieces > 0 ? (
               <Working

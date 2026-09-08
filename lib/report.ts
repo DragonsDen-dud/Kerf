@@ -42,19 +42,35 @@ const font = (weight: number, size: number) =>
 const mono = (weight: number, size: number) =>
   `${weight} ${size}px ui-monospace, "SF Mono", Menlo, Consolas, monospace`;
 
+/**
+ * Every block on the sheet can be switched off, so one renderer covers both a
+ * one-page price for a client and a full working file for yourself.
+ */
 export interface ReportOptions {
-  /** Include the per-bar cutting diagrams. Off gives a one-page cost summary. */
-  includeLayout: boolean;
-  /** Include the price-evidence section. */
+  /** The big "BUY N BARS" banner under the header. */
+  includeHeadline: boolean;
+  /** The four figures across the top. */
+  includeStats: boolean;
+  /** Where the material goes, and the cost roll-up. */
+  includeRollup: boolean;
+  /** The price-evidence section. */
   includeEvidence: boolean;
-  /** Include the step-by-step calculations behind the totals. */
+  /** The step-by-step calculations behind the totals. */
   includeWorking: boolean;
+  /** The per-bar cutting diagrams. */
+  includeLayout: boolean;
+  /** What closes the page: an order summary, or nothing. */
+  footer: "order" | "none";
 }
 
 export const DEFAULT_REPORT_OPTIONS: ReportOptions = {
-  includeLayout: true,
+  includeHeadline: true,
+  includeStats: true,
+  includeRollup: true,
   includeEvidence: true,
   includeWorking: true,
+  includeLayout: true,
+  footer: "order",
 };
 
 export function renderReport(
@@ -96,16 +112,18 @@ function paint(
   const priced = cost.total > 0;
 
   let y = drawHeader(ctx, project, cost);
-  y = drawHeadline(ctx, y, project, cost, priced);
-  y = drawStats(ctx, y, project, cost, priced);
+  if (options.includeHeadline) y = drawHeadline(ctx, y, project, cost, priced);
+  if (options.includeStats) y = drawStats(ctx, y, project, cost, priced);
   y = drawLineTable(ctx, y, project, cost, priced);
-  if (priced && project.mode === "detailed") y = drawRollup(ctx, y, project, cost);
+  if (options.includeRollup && priced && project.mode === "detailed") {
+    y = drawRollup(ctx, y, project, cost);
+  }
   if (options.includeEvidence && cost.lines.some((l) => l.price)) {
     y = drawEvidence(ctx, y, project, cost);
   }
   if (options.includeWorking) y = drawWorking(ctx, y, project, cost);
   if (options.includeLayout) y = drawLayouts(ctx, y, project, cost);
-  return drawFooter(ctx, y, project, cost);
+  return drawFooter(ctx, y, project, cost, options);
 }
 
 /* ---------------------------------------------------------------- sections */
@@ -599,37 +617,70 @@ function drawFooter(
   top: number,
   project: Project,
   cost: ProjectCost,
+  options: ReportOptions,
 ): number {
+  const notes = project.notes.trim();
+  if (options.footer === "none" && !notes) return top + 24;
+
   let y = top + 8;
   ctx.strokeStyle = LINE_COLOUR;
   hline(ctx, PAD, y - 0.5, WIDTH - PAD);
   y += 8;
 
-  ctx.fillStyle = MUTED;
-  ctx.font = font(500, 14);
+  // The old footer restated settings nobody buys from. What a purchaser
+  // actually needs off the bottom of the sheet is the order itself.
+  if (options.footer === "order" && cost.lines.length) {
+    y = sectionTitle(ctx, y, "To order");
 
-  const settings = cost.lines
-    .slice(0, 4)
-    .map(
-      (entry) =>
-        `${entry.line.name || "Line"}: ${describeStock(entry.line.stockLength, project.unit)} stock, kerf ${formatValue(entry.line.kerf, project.unit)}`,
-    )
-    .join("   ·   ");
-  ctx.fillText(truncate(ctx, settings, WIDTH - PAD * 2), PAD, y + 16);
+    ctx.font = font(500, 16);
+    for (const entry of cost.lines) {
+      const bars = entry.result.bars.length;
+      if (!bars) continue;
+      const stock = describeStock(entry.line.stockLength, project.unit);
+      const total = formatLength(bars * entry.line.stockLength, project.unit);
 
-  ctx.fillText(
-    "Every piece is charged one blade width. Quantities include cutting waste and offcut drop.",
-    PAD,
-    y + 36,
-  );
+      ctx.fillStyle = INK;
+      ctx.font = font(700, 16);
+      ctx.fillText(
+        truncate(ctx, entry.material?.name || entry.line.name || "Material", 620),
+        PAD,
+        y + 18,
+      );
 
-  if (project.notes.trim()) {
+      ctx.fillStyle = MUTED;
+      ctx.font = font(500, 16);
+      ctx.textAlign = "right";
+      ctx.fillText(`${bars} × ${stock}   (${total} total)`, WIDTH - PAD, y + 18);
+      ctx.textAlign = "left";
+      y += 26;
+    }
+
     ctx.fillStyle = INK;
-    ctx.fillText(truncate(ctx, project.notes.trim(), WIDTH - PAD * 2), PAD, y + 58);
-    y += 22;
+    ctx.font = font(700, 16);
+    const totalLength = cost.lines.reduce(
+      (sum, entry) => sum + entry.result.bars.length * entry.line.stockLength,
+      0,
+    );
+    hline(ctx, PAD, y + 4.5, WIDTH - PAD);
+    ctx.fillText(
+      `${cost.totalBars} ${cost.totalBars === 1 ? "bar" : "bars"} in total`,
+      PAD,
+      y + 30,
+    );
+    ctx.textAlign = "right";
+    ctx.fillText(formatLength(totalLength, project.unit), WIDTH - PAD, y + 30);
+    ctx.textAlign = "left";
+    y += 44;
   }
 
-  return y + 52;
+  if (notes) {
+    ctx.fillStyle = INK;
+    ctx.font = font(500, 15);
+    ctx.fillText(truncate(ctx, notes, WIDTH - PAD * 2), PAD, y + 20);
+    y += 28;
+  }
+
+  return y + 40;
 }
 
 /* ----------------------------------------------------------------- helpers */

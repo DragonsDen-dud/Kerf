@@ -114,10 +114,13 @@ export function explainWaste(cost: ProjectCost, unit: UnitSystem): Step[] {
       note: "This is the only material that ends up in the job.",
     },
     {
-      label: "Offcut drop",
-      formula: `${len(purchased, unit)} bought − ${len(net, unit)} parts − ${len(kerf, unit)} blade − ${len(trim, unit)} trim`,
-      result: len(drop, unit),
-      note: "The short ends left over once no more parts fit. Usable for small parts on a future job, but not costed here.",
+      // Blade and trim are rolled in here rather than listed separately: on a
+      // real job they are a fraction of a percent, and three near-zero lines
+      // hide the one number that matters.
+      label: "Left over (unusable ends)",
+      formula: `${len(purchased, unit)} bought − ${len(net, unit)} of finished parts`,
+      result: len(drop + kerf + trim, unit),
+      note: "The short end of each bar once no remaining piece will fit in it, plus the material the blade turns to dust. You have paid for all of it. Keep the long ends — they will do for small parts on a later job.",
     },
     {
       label: "Utilisation",
@@ -289,9 +292,9 @@ export const GLOSSARY: Term[] = [
     long: "Mill ends are often damaged, out of square or painted. If you always dock an inch off each new bar, set it here and it comes off the usable length of every bar rather than being forgotten.",
   },
   {
-    term: "Drop",
-    short: "The short offcut left at the end of a bar.",
-    long: "Once no remaining piece fits in what is left of a bar, that remainder is drop. You have paid for it either way. It may be usable for small parts on a future job, but this take-off does not credit it back.",
+    term: "Left over (drop)",
+    short: "The short end of a bar that nothing else would fit into.",
+    long: "Pieces are fitted onto a bar until nothing left on your list will fit in what remains. That remainder is the left-over, or drop. You have paid for it either way, so it is counted as part of what the job costs. Keep the long ends: they are free material for small parts on a later job. A job with a lot of left-over usually means a different stock length would suit it better.",
   },
   {
     term: "Utilisation",

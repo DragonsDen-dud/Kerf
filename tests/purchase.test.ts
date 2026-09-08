@@ -62,6 +62,8 @@ function project(overrides: Partial<Project> = {}): Project {
     unit: "imperial",
     currency: "$",
     mode: "detailed",
+    status: "enquiry",
+    archived: false,
     contingencyPct: 0,
     markupPct: 0,
     taxPct: 0,

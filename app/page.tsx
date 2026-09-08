@@ -1,81 +1,135 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 
 import CutPlanView from "@/components/CutPlanView";
 import EstimateView from "@/components/EstimateView";
-import ExportSheet from "@/components/ExportSheet";
+import ExportView from "@/components/ExportView";
 import GuideView from "@/components/GuideView";
 import JobView from "@/components/JobView";
+import JobsView from "@/components/JobsView";
 import MaterialsView from "@/components/MaterialsView";
+import { Card, Note, SectionTitle } from "@/components/ui";
 import { formatMoney } from "@/lib/pricing";
 import { useWorkspace } from "@/lib/store";
-import { describeStock } from "@/lib/units";
+import { useUpdateAvailable } from "@/lib/version";
 
-export type View = "job" | "estimate" | "cutplan" | "materials" | "guide";
+export type View =
+  | "jobs"
+  | "takeoff"
+  | "costs"
+  | "export"
+  | "cutplan"
+  | "materials"
+  | "guide"
+  | "more";
 
-const VIEWS: Array<{ id: View; label: string; plain: string; icon: string }> = [
-  { id: "job", label: "Job", plain: "Settings & cut list", icon: "M4 7h16M4 12h16M4 17h10" },
+interface NavEntry {
+  id: View;
+  label: string;
+  /** One line saying what the screen is for — this is the whole point of it. */
+  plain: string;
+  icon: string;
+}
+
+const NAV: NavEntry[] = [
   {
-    id: "estimate",
-    label: "Estimate",
-    plain: "What to buy & what it costs",
+    id: "jobs",
+    label: "Jobs",
+    plain: "Every job you have started",
+    icon: "M4 6h16M4 12h16M4 18h16",
+  },
+  {
+    id: "takeoff",
+    label: "Take-off",
+    plain: "Enter the materials and the pieces to cut",
+    icon: "M3 8h18M8 4v16M3 16h18",
+  },
+  {
+    id: "costs",
+    label: "Costs",
+    plain: "What it comes to, and how that was worked out",
     icon: "M4 19V5m5 14V9m5 10V7m5 12v-8",
   },
-  { id: "cutplan", label: "Cut plan", plain: "How to cut each bar", icon: "M3 8h18M3 16h18M8 4v16" },
+  {
+    id: "export",
+    label: "Export",
+    plain: "Build the purchase list or the take-off sheet",
+    icon: "M12 16V4m0 0L8 8m4-4 4 4M4 15v3a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-3",
+  },
+  {
+    id: "cutplan",
+    label: "Cut plan",
+    plain: "How to cut each bar, for the saw",
+    icon: "M6 3v12m12-12v12M6 21a3 3 0 1 0 0-6 3 3 0 0 0 0 6Zm12 0a3 3 0 1 0 0-6 3 3 0 0 0 0 6Z",
+  },
   {
     id: "materials",
     label: "Materials",
-    plain: "Prices & where they came from",
+    plain: "Your prices, and the proof behind them",
     icon: "M12 3 3 8v8l9 5 9-5V8l-9-5Zm0 0v18",
   },
   {
     id: "guide",
     label: "Guide",
-    plain: "How the maths works",
+    plain: "What every number on the screens means",
     icon: "M12 17h.01M12 13a2.5 2.5 0 1 0-2.5-2.5M12 22a10 10 0 1 1 0-20 10 10 0 0 1 0 20Z",
   },
 ];
 
+/** The phone has room for four screens plus a way to reach the rest. */
+const PHONE_TABS: View[] = ["jobs", "takeoff", "costs", "export"];
+const MORE_TABS: View[] = ["cutplan", "materials", "guide"];
+
+const entry = (id: View) => NAV.find((item) => item.id === id)!;
+
 export default function Home() {
   const workspace = useWorkspace();
-  const [view, setView] = useState<View>("estimate");
-  const [exporting, setExporting] = useState(false);
+  const [view, setView] = useState<View>("jobs");
   const { project, cost, materials, migrated } = workspace;
+  const update = useUpdateAvailable();
 
-  // Register the offline service worker once the app is interactive.
-  useEffect(() => {
-    if (!("serviceWorker" in navigator)) return;
-    const timer = setTimeout(() => {
-      navigator.serviceWorker.register("/sw.js").catch(() => {
-        // Offline support is a bonus; the app works without it.
-      });
-    }, 1500);
-    return () => clearTimeout(timer);
-  }, []);
-
-  const canExport = cost.totalPieces > 0;
   const usedMaterialIds = project.lines
     .map((line) => line.materialId)
     .filter((id): id is string => Boolean(id));
 
+  const current = view === "more" ? null : entry(view);
+
   const body = (
     <>
+      {update.ready ? (
+        <div className="mb-5 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-amber-500/40 bg-amber-500/10 p-3 text-sm text-amber-100">
+          <span>A newer version of Kerf is ready. This tab is still running the old one.</span>
+          <button type="button" className="btn-primary !min-h-9 px-3 text-xs" onClick={update.reload}>
+            Reload
+          </button>
+        </div>
+      ) : null}
+
       {migrated ? (
         <div className="mb-5 rounded-xl border border-sky-500/40 bg-sky-500/10 p-3 text-sm text-sky-100">
           Your previous cut list was carried over. Its material is now under Materials — add a price
           and a source to cost it.
         </div>
       ) : null}
-      {view === "job" ? (
+
+      {current ? (
+        <p className="mb-4 text-sm leading-relaxed text-slate-400">{current.plain}.</p>
+      ) : null}
+
+      {view === "jobs" ? (
+        <JobsView workspace={workspace} onOpen={() => setView("takeoff")} />
+      ) : view === "takeoff" ? (
         <JobView workspace={workspace} onOpenMaterials={() => setView("materials")} />
-      ) : view === "estimate" ? (
+      ) : view === "costs" ? (
         <EstimateView
           project={project}
           cost={cost}
           onOpenMaterials={() => setView("materials")}
           onOpenGuide={() => setView("guide")}
         />
+      ) : view === "export" ? (
+        <ExportView project={project} cost={cost} patchProject={workspace.patchProject} />
       ) : view === "cutplan" ? (
         <CutPlanView project={project} cost={cost} />
       ) : view === "materials" ? (
@@ -88,8 +142,10 @@ export default function Home() {
           addPrice={workspace.addPrice}
           removePrice={workspace.removePrice}
         />
-      ) : (
+      ) : view === "guide" ? (
         <GuideView project={project} cost={cost} />
+      ) : (
+        <MoreMenu onPick={setView} />
       )}
     </>
   );
@@ -107,25 +163,25 @@ export default function Home() {
           </p>
         </div>
         <nav className="flex-1 space-y-1 px-3">
-          {VIEWS.map((entry) => {
-            const active = view === entry.id;
+          {NAV.map((item) => {
+            const active = view === item.id;
             return (
               <button
-                key={entry.id}
+                key={item.id}
                 type="button"
                 aria-current={active ? "page" : undefined}
-                onClick={() => setView(entry.id)}
+                onClick={() => setView(item.id)}
                 className={`flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left transition ${
                   active
                     ? "nav-active text-amber-300"
                     : "text-slate-400 hover:bg-white/[0.05] hover:text-slate-200"
                 }`}
               >
-                <Icon path={entry.icon} />
+                <Icon path={item.icon} />
                 <span className="min-w-0">
-                  <span className="block text-sm font-bold leading-tight">{entry.label}</span>
+                  <span className="block text-sm font-bold leading-tight">{item.label}</span>
                   <span className="block truncate text-[11px] leading-tight opacity-70">
-                    {entry.plain}
+                    {item.plain}
                   </span>
                 </span>
               </button>
@@ -133,9 +189,7 @@ export default function Home() {
           })}
         </nav>
         <div className="safe-bottom px-5 py-4 text-[11px] leading-relaxed text-slate-600">
-          {project.mode === "quick" ? "Quick estimate" : "Detailed take-off"}
-          <br />
-          Saved on this device
+          {workspace.sync.code ? "Synced across your devices" : "Saved on this device"}
         </div>
       </aside>
 
@@ -143,55 +197,32 @@ export default function Home() {
       <div className="flex min-w-0 flex-1 flex-col">
         <header className="safe-top z-30 shrink-0 border-b border-white/10 bg-ink-950/85 backdrop-blur-lg">
           <div className="mx-auto flex w-full max-w-6xl items-center justify-between gap-3 px-4 py-3">
-            <div className="min-w-0">
+            <button
+              type="button"
+              onClick={() => setView("jobs")}
+              className="min-w-0 flex-1 text-left"
+            >
               <p className="truncate text-base font-bold text-slate-50">
                 {project.name || "Untitled job"}
               </p>
               <p className="truncate text-xs text-slate-500">
                 {project.client ? `${project.client} · ` : ""}
-                {project.lines.length > 1
-                  ? `${project.lines.length} materials`
-                  : describeStock(project.lines[0]?.stockLength ?? 240, project.unit)}
+                {cost.totalPieces > 0
+                  ? `${cost.totalBars} ${cost.totalBars === 1 ? "bar" : "bars"} · ${cost.totalPieces} pieces`
+                  : "Nothing to cut yet"}
+                {cost.total > 0 ? ` · ${formatMoney(cost.total, project.currency)}` : ""}
               </p>
-            </div>
-            <button
-              type="button"
-              className="btn-primary shrink-0 px-3 disabled:opacity-40 disabled:shadow-none"
-              disabled={!canExport}
-              onClick={() => setExporting(true)}
-            >
-              <svg
-                className="h-4 w-4"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2.2"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                aria-hidden="true"
-              >
-                <path d="M12 16V4m0 0L8 8m4-4 4 4" />
-                <path d="M4 15v3a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-3" />
-              </svg>
-              Export
             </button>
+            {view !== "export" && cost.totalPieces > 0 ? (
+              <button
+                type="button"
+                className="btn-primary shrink-0 px-3"
+                onClick={() => setView("export")}
+              >
+                Export
+              </button>
+            ) : null}
           </div>
-
-          {canExport ? (
-            <div className="border-t border-white/[0.07] bg-gradient-to-r from-amber-500/[0.18] via-orange-500/[0.08] to-transparent">
-              <div className="mx-auto flex w-full max-w-6xl items-center gap-2 px-4 py-2">
-                <span className="fire-text text-sm font-extrabold">
-                  {cost.total > 0
-                    ? formatMoney(cost.total, project.currency)
-                    : `${cost.totalBars} ${cost.totalBars === 1 ? "BAR" : "BARS"}`}
-                </span>
-                <span className="truncate text-xs text-amber-100/70">
-                  {cost.totalBars} {cost.totalBars === 1 ? "bar" : "bars"} to buy ·{" "}
-                  {cost.totalPieces} pieces · {(cost.utilisation * 100).toFixed(1)}% used
-                </span>
-              </div>
-            </div>
-          ) : null}
         </header>
 
         <main className="flex-1 overflow-y-auto overscroll-contain">
@@ -201,31 +232,70 @@ export default function Home() {
         {/* Phone tab bar */}
         <nav className="safe-bottom z-30 shrink-0 border-t border-white/10 bg-ink-950/90 backdrop-blur-lg lg:hidden">
           <div className="grid grid-cols-5">
-            {VIEWS.map((entry) => {
-              const active = view === entry.id;
+            {PHONE_TABS.map((id) => {
+              const item = entry(id);
+              const active = view === id;
               return (
                 <button
-                  key={entry.id}
+                  key={id}
                   type="button"
                   aria-current={active ? "page" : undefined}
                   className={`flex flex-col items-center gap-1 py-2.5 text-[10px] font-semibold transition ${
                     active ? "text-amber-300" : "text-slate-500"
                   }`}
-                  onClick={() => setView(entry.id)}
+                  onClick={() => setView(id)}
                 >
-                  <Icon path={entry.icon} />
-                  {entry.label}
+                  <Icon path={item.icon} />
+                  {item.label}
                 </button>
               );
             })}
+            <button
+              type="button"
+              aria-current={view === "more" || MORE_TABS.includes(view) ? "page" : undefined}
+              className={`flex flex-col items-center gap-1 py-2.5 text-[10px] font-semibold transition ${
+                view === "more" || MORE_TABS.includes(view) ? "text-amber-300" : "text-slate-500"
+              }`}
+              onClick={() => setView("more")}
+            >
+              <Icon path="M5 12h.01M12 12h.01M19 12h.01" />
+              More
+            </button>
           </div>
         </nav>
       </div>
-
-      {exporting ? (
-        <ExportSheet project={project} cost={cost} onClose={() => setExporting(false)} />
-      ) : null}
     </div>
+  );
+}
+
+/** The phone's overflow menu — the screens that are not part of daily use. */
+function MoreMenu({ onPick }: { onPick: (view: View) => void }) {
+  return (
+    <Card>
+      <SectionTitle>More</SectionTitle>
+      <Note>The rest of the app. These are here when you need them, not every day.</Note>
+      <ul className="mt-3 divide-y divide-white/[0.07]">
+        {MORE_TABS.map((id) => {
+          const item = entry(id);
+          return (
+            <li key={id}>
+              <button
+                type="button"
+                onClick={() => onPick(id)}
+                className="flex w-full items-center gap-3 py-3 text-left"
+              >
+                <Icon path={item.icon} />
+                <span className="min-w-0 flex-1">
+                  <span className="block text-sm font-bold text-slate-100">{item.label}</span>
+                  <span className="block text-xs text-slate-500">{item.plain}</span>
+                </span>
+                <span className="text-slate-600">›</span>
+              </button>
+            </li>
+          );
+        })}
+      </ul>
+    </Card>
   );
 }
 

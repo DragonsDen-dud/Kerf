@@ -224,8 +224,8 @@ export default function EstimateView({
       <Card>
         <SectionTitle>Where the material goes</SectionTitle>
         <Note>
-          You pay for whole bars. Some of that becomes finished parts, some is turned to dust by the
-          blade, and the rest is offcut left on the end.
+          You buy whole bars, so you pay for the whole bar. Most of it becomes finished parts; what
+          is left is the short end of each bar that nothing else would fit into.
         </Note>
 
         <div className="mt-4">
@@ -250,19 +250,9 @@ export default function EstimateView({
             hint="Bars needed × bar length"
           />
           <Row
-            label="Lost to the blade"
-            value={formatLength(kerfLoss, unit)}
-            hint="One blade width per piece"
-          />
-          <Row
-            label="Lost to end trim"
-            value={formatLength(trimLoss, unit)}
-            hint="Docked off each new bar"
-          />
-          <Row
-            label="Offcut drop"
-            value={formatLength(dropLoss, unit)}
-            hint="Short ends nothing else fits into"
+            label="Left over (unusable ends)"
+            value={formatLength(dropLoss + kerfLoss + trimLoss, unit)}
+            hint="The short end of each bar once no remaining piece will fit in it. You have paid for it, and it may do for small parts on a later job."
           />
         </dl>
 
@@ -421,11 +411,16 @@ function WasteBar({
 }) {
   if (purchased <= 0) return null;
 
+  // Blade and end trim are real but tiny — a fraction of a percent on a
+  // typical job. Shown separately they are noise, so they ride with the
+  // leftover, which is the number worth acting on.
   const segments = [
     { label: "Finished parts", value: netLength, colour: "#22c55e" },
-    { label: "Blade", value: kerfLoss, colour: "#fbbf24" },
-    { label: "End trim", value: trimLoss, colour: "#f97316" },
-    { label: "Drop", value: Math.max(0, dropLoss), colour: "#475569" },
+    {
+      label: "Left over",
+      value: Math.max(0, dropLoss + kerfLoss + trimLoss),
+      colour: "#475569",
+    },
   ].filter((segment) => segment.value > 0);
 
   return (

@@ -12,7 +12,7 @@
 
 import type { UnitSystem } from "./units";
 
-export const SCHEMA_VERSION = 2;
+export const SCHEMA_VERSION = 3;
 
 /**
  * How pieces are assigned to bars.
@@ -147,6 +147,21 @@ export interface Extra {
 
 export type Mode = "quick" | "detailed";
 
+/**
+ * Where a job has got to. Drives the Jobs list, so old work can be parked
+ * without being deleted and a live enquiry is never mixed in with a finished
+ * one.
+ */
+export type JobStatus = "enquiry" | "quoted" | "won" | "ordered" | "done";
+
+export const STATUS_LABELS: Record<JobStatus, string> = {
+  enquiry: "Enquiry",
+  quoted: "Quoted",
+  won: "Won",
+  ordered: "Ordered",
+  done: "Done",
+};
+
 export interface Project {
   schemaVersion: typeof SCHEMA_VERSION;
   id: string;
@@ -165,8 +180,34 @@ export interface Project {
   contingencyPct: number;
   markupPct: number;
   taxPct: number;
+  status: JobStatus;
+  /** Parked jobs stay in the library but drop out of the default list. */
+  archived: boolean;
   createdAt: string;
   updatedAt: string;
+}
+
+/* ------------------------------------------------------------------ library */
+
+/**
+ * Everything the app owns, in one object. This is the unit that syncs between
+ * a phone and a PC: jobs, the material library, and tombstones so a delete on
+ * one device does not come back from the other.
+ */
+export interface Library {
+  schemaVersion: typeof SCHEMA_VERSION;
+  projects: Project[];
+  materials: Material[];
+  /** Ids deleted on some device, with when — so a merge honours the delete. */
+  tombstones: Tombstone[];
+  activeId: string | null;
+  updatedAt: string;
+}
+
+export interface Tombstone {
+  id: string;
+  kind: "project" | "material";
+  at: string;
 }
 
 /* ----------------------------------------------------------------- helpers */
