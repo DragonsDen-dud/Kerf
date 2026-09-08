@@ -39,7 +39,7 @@ import { formatValue, unitAbbr } from "@/lib/units";
 interface Props {
   project: Project;
   materials: Material[];
-  /** Which materials are in use, so the Hoard can warn before deleting one. */
+  /** Which materials are in use, so deleting one can warn first. */
   usedMaterialIds: string[];
   saveMaterial: (material: Material) => void;
   removeMaterial: (id: string) => void;
@@ -48,11 +48,11 @@ interface Props {
 }
 
 /**
- * THE HOARD — the material library. Every material carries the price in force
+ * The material library. Every material carries the price currently in force
  * plus the evidence behind it, and a full price history so an old take-off can
  * still be explained months later.
  */
-export default function HoardView({
+export default function MaterialsView({
   project,
   materials,
   usedMaterialIds,
@@ -93,11 +93,12 @@ export default function HoardView({
         <SectionTitle
           aside={<span className="text-xs text-slate-500">{materials.length} materials</span>}
         >
-          The Hoard · materials &amp; prices
+          Materials and prices
         </SectionTitle>
-        <p className="mb-3 text-sm text-slate-400">
-          Every price you save keeps its receipt — who quoted it, when, the reference number and a
-          copy of the quote. Take-offs cite it automatically.
+        <p className="mb-3 text-sm leading-relaxed text-slate-400">
+          Save each material once, with the price and where that price came from — who quoted it,
+          when, the reference number, and a photo of the quote if you have one. Every estimate then
+          cites it automatically, so you can always show your working.
         </p>
 
         <div className="flex flex-col gap-3 sm:flex-row">
@@ -129,11 +130,11 @@ export default function HoardView({
       {visible.length === 0 ? (
         <Card className="text-center text-slate-400">
           <p className="text-lg font-semibold text-slate-200">
-            {materials.length === 0 ? "The Hoard is empty" : "Nothing matches"}
+            {materials.length === 0 ? "No materials saved yet" : "Nothing matches"}
           </p>
           <p className="mt-1 text-sm">
             {materials.length === 0
-              ? "Add the stock you buy, with the price and where it came from."
+              ? "Add the stock you buy, with its price and where that price came from."
               : "Try a different search or category."}
           </p>
         </Card>
@@ -250,9 +251,9 @@ function MaterialCard({
         {stale ? <Badge tone="warn">{Math.round(age)} days old</Badge> : null}
         {price?.source.attachmentId ? <Badge tone="good">proof attached</Badge> : null}
         {material.prices.length > 1 ? (
-          <Badge>{material.prices.length} price records</Badge>
+          <Badge>{material.prices.length} prices on record</Badge>
         ) : null}
-        {inUse ? <Badge tone="brand">in this take-off</Badge> : null}
+        {inUse ? <Badge tone="brand">used in this job</Badge> : null}
       </div>
     </Card>
   );
@@ -302,7 +303,7 @@ function MaterialEditor({
               className="btn-ghost !text-rose-300"
               onClick={() => {
                 const warning = inUse
-                  ? "This material is used in the current take-off. Delete it anyway?"
+                  ? "This material is used in the current job. Delete it anyway?"
                   : "Delete this material and its price history?";
                 if (confirm(warning)) removeMaterial(local.id);
               }}
@@ -393,7 +394,7 @@ function MaterialEditor({
               </button>
             }
           >
-            Pricing &amp; proof
+            Price and proof
           </SectionTitle>
 
           {adding ? (
@@ -413,8 +414,8 @@ function MaterialEditor({
 
           {local.prices.length === 0 && !adding ? (
             <p className="rounded-xl border border-dashed border-white/15 p-4 text-center text-sm text-slate-500">
-              No price recorded yet. Add one so take-offs using this material can be costed and
-              cited.
+              No price yet. Add one so any job using this material gets costed, and so the estimate
+              can show where the figure came from.
             </p>
           ) : null}
 
@@ -642,12 +643,12 @@ function PriceForm({
           value={stockLength}
           unit={project.unit}
           onChange={setStockLength}
-          hint="Lets the price stay right if you cut the job from a different length."
+          hint="If a job uses a different bar length, the price is scaled to match."
         />
       ) : null}
 
       <div className="grid gap-3 sm:grid-cols-2">
-        <Field label="Where it came from" htmlFor="price-kind">
+        <Field label="Where the price came from" htmlFor="price-kind">
           <select
             id="price-kind"
             className="field"
@@ -682,7 +683,7 @@ function PriceForm({
             onChange={(event) => patchSource({ reference: event.target.value })}
           />
         </Field>
-        <Field label="Date of the price" htmlFor="price-date" hint="Not today — when it was quoted.">
+        <Field label="Date of the price" htmlFor="price-date" hint="When it was quoted, not today. This drives the out-of-date warning.">
           <input
             id="price-date"
             className="field"
@@ -738,7 +739,7 @@ function PriceForm({
             </span>
           ) : (
             <span className="text-xs text-slate-500">
-              Snap the quote — up to {MAX_ATTACHMENT_BYTES / 1024 / 1024}MB, kept on this device.
+              Photograph the quote — up to {MAX_ATTACHMENT_BYTES / 1024 / 1024}MB, kept on this device only.
             </span>
           )}
         </div>

@@ -2,6 +2,8 @@
 
 import { useEffect, type ReactNode } from "react";
 
+import type { Step } from "@/lib/explain";
+
 /* ------------------------------------------------------------------ layout */
 
 export function Card({
@@ -230,6 +232,97 @@ export function Money({
       {currency}
       {amount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
     </span>
+  );
+}
+
+/* ------------------------------------------------------- showing the maths */
+
+/**
+ * A collapsible panel that shows how a number was reached: the sum with the
+ * real values substituted in, the answer, and one line on why it matters.
+ */
+export function Working({
+  title = "Show the working",
+  steps,
+  defaultOpen = false,
+}: {
+  title?: string;
+  steps: Step[];
+  defaultOpen?: boolean;
+}) {
+  if (steps.length === 0) return null;
+
+  return (
+    <details
+      className="group mt-3 rounded-xl border border-white/10 bg-white/[0.02] open:border-amber-500/25 open:bg-amber-500/[0.04]"
+      open={defaultOpen}
+    >
+      <summary className="flex cursor-pointer list-none items-center justify-between gap-2 px-3 py-2.5 text-xs font-bold uppercase tracking-wider text-slate-400 transition hover:text-amber-300">
+        <span className="flex items-center gap-2">
+          <svg
+            className="h-3.5 w-3.5 transition-transform group-open:rotate-90"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="3"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            aria-hidden="true"
+          >
+            <path d="m9 6 6 6-6 6" />
+          </svg>
+          {title}
+        </span>
+      </summary>
+      <ol className="space-y-3 border-t border-white/[0.07] px-3 py-3">
+        {steps.map((step, index) => (
+          <li key={index}>
+            <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
+              <span className="text-sm font-semibold text-slate-100">{step.label}</span>
+              <span className="font-mono text-sm font-bold tabular-nums text-amber-300">
+                {step.result}
+              </span>
+            </div>
+            <p className="mt-0.5 font-mono text-xs leading-relaxed text-slate-400">
+              {step.formula}
+            </p>
+            {step.note ? (
+              <p className="mt-1 text-xs leading-relaxed text-slate-500">{step.note}</p>
+            ) : null}
+          </li>
+        ))}
+      </ol>
+    </details>
+  );
+}
+
+/** A short explanatory paragraph under a heading or field. */
+export function Note({ children }: { children: ReactNode }) {
+  return <p className="text-xs leading-relaxed text-slate-500">{children}</p>;
+}
+
+/** A headline figure with an optional one-line explanation of what it means. */
+export function StatCard({
+  label,
+  value,
+  hint,
+  fire = false,
+}: {
+  label: string;
+  value: string;
+  hint?: string;
+  fire?: boolean;
+}) {
+  return (
+    <div className="stat-card">
+      <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-500">{label}</p>
+      <p
+        className={`mt-1 text-2xl font-extrabold lg:text-3xl ${fire ? "fire-text" : "text-slate-50"}`}
+      >
+        {value}
+      </p>
+      {hint ? <p className="mt-1 text-[11px] leading-snug text-slate-500">{hint}</p> : null}
+    </div>
   );
 }
 

@@ -3,7 +3,8 @@
 import { useMemo, useState } from "react";
 
 import BarDiagram from "./BarDiagram";
-import { Badge, Card, Empty, SectionTitle } from "./ui";
+import { Badge, Card, Empty, Note, SectionTitle, Working } from "./ui";
+import { explainBarFill } from "@/lib/explain";
 import { groupBars, summariseBar } from "@/lib/pack";
 import { colourFor } from "@/lib/palette";
 import type { LineCost, ProjectCost } from "@/lib/pricing";
@@ -12,36 +13,50 @@ import type { Project } from "@/lib/types";
 import { formatLength, formatValue } from "@/lib/units";
 
 /**
- * TALONS — where the cutting happens. For every bar, which pieces come off it
- * and in what order, with identical bars grouped so a 40-bar job stays readable.
+ * The cut plan: for every bar, which pieces come off it and in what order.
+ * Identical bars are grouped so a forty-bar job stays readable.
  */
-export default function TalonsView({ project, cost }: { project: Project; cost: ProjectCost }) {
+export default function CutPlanView({
+  project,
+  cost,
+}: {
+  project: Project;
+  cost: ProjectCost;
+}) {
   const [grouped, setGrouped] = useState(true);
   const withBars = cost.lines.filter((entry) => entry.result.bars.length > 0);
 
   if (withBars.length === 0) {
     return (
       <Empty
-        title="No layout yet"
-        body="Add pieces in the Den to see how each bar gets cut."
+        title="No cut plan yet"
+        body="Enter your parts in the Job screen and the plan for cutting each bar appears here."
       />
     );
   }
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between gap-3">
-        <p className="text-sm text-slate-400">
-          {cost.totalBars} bars across {withBars.length} line{withBars.length === 1 ? "" : "s"}
-        </p>
-        <button
-          type="button"
-          className="rounded-lg bg-white/[0.06] px-3 py-1.5 text-xs font-semibold text-slate-200 hover:bg-white/[0.1]"
-          onClick={() => setGrouped((value) => !value)}
+      <Card>
+        <SectionTitle
+          aside={
+            <button
+              type="button"
+              className="rounded-lg bg-white/[0.06] px-3 py-1.5 text-xs font-semibold text-slate-200 hover:bg-white/[0.1]"
+              onClick={() => setGrouped((value) => !value)}
+            >
+              {grouped ? "Show every bar" : "Group identical bars"}
+            </button>
+          }
         >
-          {grouped ? "Show every bar" : "Group identical"}
-        </button>
-      </div>
+          Cutting order
+        </SectionTitle>
+        <Note>
+          Cut in the order shown, left to right along each bar. The grey tail on the end of a bar is
+          drop — material you have paid for but cannot use on this job. Bars that get cut exactly
+          the same way are grouped together.
+        </Note>
+      </Card>
 
       {withBars.map((entry) => (
         <LineLayout
@@ -81,15 +96,15 @@ function LineLayout({
   return (
     <section className="space-y-4">
       {showHeading ? (
-        <div className="flex flex-wrap items-baseline justify-between gap-2 border-b border-white/10 pb-2">
+        <div className="flex flex-wrap items-baseline justify-between gap-2 border-b border-amber-500/20 pb-2">
           <h2 className="text-base font-bold text-slate-50">
-            {entry.line.name || "Line"}
+            {entry.line.name || "Material"}
             {entry.material ? (
               <span className="ml-2 text-sm font-medium text-slate-400">{entry.material.name}</span>
             ) : null}
           </h2>
           <Badge tone="brand">
-            {entry.result.totals.barsNeeded} bars · {groups.length} pattern
+            {entry.result.totals.barsNeeded} bars · {groups.length} different pattern
             {groups.length === 1 ? "" : "s"}
           </Badge>
         </div>
@@ -103,11 +118,11 @@ function LineLayout({
                 {indices.length === 1 ? `Bar ${indices[0]}` : `Bars ${compactRanges(indices)}`}
                 {indices.length > 1 ? (
                   <span className="ml-2 rounded-md bg-amber-500/20 px-2 py-0.5 text-xs font-bold text-amber-300">
-                    ×{indices.length}
+                    cut {indices.length} of these the same way
                   </span>
                 ) : null}
               </h3>
-              <span className="text-xs text-slate-500">{bar.pieces.length} cuts</span>
+              <span className="shrink-0 text-xs text-slate-500">{bar.pieces.length} cuts</span>
             </div>
 
             <BarDiagram
@@ -133,13 +148,25 @@ function LineLayout({
               ))}
             </ol>
 
-            <div className="mt-3 flex justify-between border-t border-white/[0.07] pt-2.5 text-xs text-slate-400">
-              <span>Used {formatLength(bar.used, unit)}</span>
-              <span>Kerf {formatLength(bar.kerfLoss, unit)}</span>
-              <span className={bar.remaining > 0.01 ? "text-amber-300" : ""}>
-                Drop {formatLength(bar.remaining, unit)}
+            <div className="mt-3 flex flex-wrap justify-between gap-x-4 gap-y-1 border-t border-white/[0.07] pt-2.5 text-xs text-slate-400">
+              <span>Parts {formatLength(bar.used, unit)}</span>
+              <span>Blade {formatLength(bar.kerfLoss, unit)}</span>
+              <span className={bar.remaining > 0.01 ? "text-amber-300" : "text-emerald-300"}>
+                {bar.remaining > 0.01 ? `Drop ${formatLength(bar.remaining, unit)}` : "No drop"}
               </span>
             </div>
+
+            <Working
+              title="How this bar adds up"
+              steps={[
+                explainBarFill(
+                  bar.pieces.map((piece) => piece.length),
+                  entry.line.kerf,
+                  entry.result.totals.usableLength,
+                  unit,
+                ),
+              ]}
+            />
           </Card>
         ))}
       </div>

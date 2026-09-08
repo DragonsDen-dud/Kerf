@@ -11,13 +11,13 @@ import type { Project } from "@/lib/types";
 type Status = "rendering" | "ready" | "error";
 
 /**
- * SMOKE SIGNAL — get it out of the app and in front of someone.
+ * Getting the take-off out of the app and in front of someone.
  *
  * The PNG is the fast path (straight into the iOS share sheet); the CSV and
  * JSON are the paper trail — the JSON is the versioned shape another system
  * can ingest later.
  */
-export default function SmokeSignal({
+export default function ExportSheet({
   project,
   cost,
   onClose,
@@ -29,6 +29,7 @@ export default function SmokeSignal({
   const [options, setOptions] = useState<ReportOptions>({
     includeLayout: true,
     includeEvidence: true,
+    includeWorking: true,
   });
   const [status, setStatus] = useState<Status>("rendering");
   const [dataUrl, setDataUrl] = useState("");
@@ -102,7 +103,7 @@ export default function SmokeSignal({
   return (
     <Modal
       wide
-      title="Smoke Signal"
+      title="Export"
       onClose={onClose}
       footer={
         <>
@@ -170,7 +171,12 @@ export default function SmokeSignal({
         <Toggle
           checked={options.includeEvidence}
           onChange={(includeEvidence) => setOptions((o) => ({ ...o, includeEvidence }))}
-          label="Include pricing evidence"
+          label="Include where the prices came from"
+        />
+        <Toggle
+          checked={options.includeWorking}
+          onChange={(includeWorking) => setOptions((o) => ({ ...o, includeWorking }))}
+          label="Include the calculations"
         />
       </div>
 

@@ -345,11 +345,11 @@ export function useWorkspace(): Workspace {
   // Hydrate after mount so server and client markup agree.
   useEffect(() => {
     const storedProject = reviveProject(read(PROJECT_KEY));
-    const storedHoard = read(HOARD_KEY);
+    const storedMaterials = read(HOARD_KEY);
 
     if (storedProject) {
       setProject(storedProject);
-      if (Array.isArray(storedHoard)) setMaterials(storedHoard.map(reviveMaterial));
+      if (Array.isArray(storedMaterials)) setMaterials(storedMaterials.map(reviveMaterial));
     } else {
       const legacy = migrateLegacy(read(LEGACY_KEY));
       if (legacy) {
@@ -508,7 +508,7 @@ export function useWorkspace(): Workspace {
   const removeMaterial = useCallback((id: string) => {
     setMaterials((current) => current.filter((m) => m.id !== id));
     // Leave the line's materialId dangling rather than silently rewriting the
-    // take-off; the UI surfaces it as "material removed from the Hoard".
+    // take-off; the UI surfaces it as "this material has been deleted".
   }, []);
 
   const addPrice = useCallback((materialId: string, price: PriceRecord) => {

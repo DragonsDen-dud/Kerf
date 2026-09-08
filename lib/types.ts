@@ -5,7 +5,7 @@
  * its own stock length, saw settings and cut list, so a job that needs three
  * different profiles is three Lines under one Project.
  *
- * Prices live separately in the Hoard (the material library) and are referenced
+ * Prices live separately in the material library and are referenced
  * by id, so re-pricing a material updates every take-off that uses it — and
  * every price carries the evidence it came from.
  */
@@ -91,7 +91,7 @@ export interface PriceRecord {
    */
   stockLength: number;
   source: PriceSource;
-  /** ISO timestamp the record was entered into the Hoard. */
+  /** ISO timestamp the record was entered. */
   recordedAt: string;
 }
 

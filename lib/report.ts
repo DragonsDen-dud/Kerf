@@ -5,11 +5,12 @@
  * unreliable at serialising foreignObject/webfonts, and this gives a fixed,
  * print-friendly layout that reads the same on a phone and in an email.
  *
- * The page deliberately drops the app's Dragon's Den naming — this is the
- * artefact that leaves the building, so it stays plain and businesslike, and
- * it always states how firm the pricing is.
+ * This is the artefact that leaves the building, so it stays plain and
+ * businesslike, it always states how firm the pricing is, and it can carry the
+ * working behind every figure.
  */
 
+import { explainRollup, explainWaste, type Step } from "./explain";
 import { groupBars, summariseBar, type Bar } from "./pack";
 import { PALETTE } from "./palette";
 import {
@@ -46,11 +47,14 @@ export interface ReportOptions {
   includeLayout: boolean;
   /** Include the price-evidence section. */
   includeEvidence: boolean;
+  /** Include the step-by-step calculations behind the totals. */
+  includeWorking: boolean;
 }
 
 export const DEFAULT_REPORT_OPTIONS: ReportOptions = {
   includeLayout: true,
   includeEvidence: true,
+  includeWorking: true,
 };
 
 export function renderReport(
@@ -99,6 +103,7 @@ function paint(
   if (options.includeEvidence && cost.lines.some((l) => l.price)) {
     y = drawEvidence(ctx, y, project, cost);
   }
+  if (options.includeWorking) y = drawWorking(ctx, y, project, cost);
   if (options.includeLayout) y = drawLayouts(ctx, y, project, cost);
   return drawFooter(ctx, y, project, cost);
 }
@@ -184,12 +189,12 @@ function drawStats(
   priced: boolean,
 ): number {
   const stats: Array<[string, string]> = [
-    ["Stock bars to buy", String(cost.totalBars)],
+    ["Bars to buy", String(cost.totalBars)],
     ["Pieces to cut", String(cost.totalPieces)],
     ["Utilisation", formatPercent(cost.utilisation)],
     priced
       ? ["Material cost", formatMoney(cost.materials, project.currency)]
-      : ["Take-off lines", String(cost.lines.length)],
+      : ["Materials used", String(cost.lines.length)],
   ];
 
   ctx.fillStyle = PANEL;
@@ -225,7 +230,7 @@ function drawLineTable(
   cost: ProjectCost,
   priced: boolean,
 ): number {
-  let y = sectionTitle(ctx, top, "Material required");
+  let y = sectionTitle(ctx, top, "What to buy");
 
   const cols = {
     name: PAD,
@@ -238,7 +243,7 @@ function drawLineTable(
 
   ctx.fillStyle = MUTED;
   ctx.font = font(700, 12);
-  ctx.fillText("LINE / MATERIAL", cols.name, y + 14);
+  ctx.fillText("MATERIAL", cols.name, y + 14);
   ctx.textAlign = "right";
   ctx.fillText("STOCK", cols.stock, y + 14);
   ctx.fillText("BARS", cols.bars, y + 14);
@@ -319,7 +324,7 @@ function drawRollup(
   project: Project,
   cost: ProjectCost,
 ): number {
-  let y = sectionTitle(ctx, top, "Cost summary");
+  let y = sectionTitle(ctx, top, "How the total is built up");
 
   const rows: Array<[string, number, boolean]> = [["Materials", cost.materials, false]];
   for (const extra of project.extras) {
@@ -371,7 +376,7 @@ function drawEvidence(
   project: Project,
   cost: ProjectCost,
 ): number {
-  let y = sectionTitle(ctx, top, "Where the pricing came from");
+  let y = sectionTitle(ctx, top, "Where the prices came from");
 
   const seen = new Set<string>();
   for (const entry of cost.lines) {
@@ -426,6 +431,52 @@ function drawEvidence(
   return y + 4;
 }
 
+/**
+ * The step-by-step sums behind the totals, so the reader can check the figures
+ * without opening the app.
+ */
+function drawWorking(
+  ctx: CanvasRenderingContext2D,
+  top: number,
+  project: Project,
+  cost: ProjectCost,
+): number {
+  const steps: Step[] = [
+    ...explainWaste(cost, project.unit),
+    ...(cost.total > 0 && project.mode === "detailed" ? explainRollup(project, cost) : []),
+  ];
+  if (steps.length === 0) return top;
+
+  let y = sectionTitle(ctx, top, "How these numbers were worked out");
+
+  for (const step of steps) {
+    ctx.fillStyle = INK;
+    ctx.font = font(600, 16);
+    ctx.fillText(truncate(ctx, step.label, WIDTH - PAD * 2 - 200), PAD, y + 16);
+
+    ctx.textAlign = "right";
+    ctx.font = mono(700, 16);
+    ctx.fillText(step.result, WIDTH - PAD, y + 16);
+    ctx.textAlign = "left";
+
+    ctx.fillStyle = MUTED;
+    ctx.font = mono(400, 13);
+    ctx.fillText(truncate(ctx, step.formula, WIDTH - PAD * 2), PAD, y + 34);
+
+    y += step.note ? 72 : 52;
+    if (step.note) {
+      ctx.fillStyle = "#94a3b8";
+      ctx.font = font(400, 13);
+      ctx.fillText(truncate(ctx, step.note, WIDTH - PAD * 2), PAD, y - 20);
+    }
+
+    ctx.strokeStyle = LINE_COLOUR;
+    hline(ctx, PAD, y - 10.5, WIDTH - PAD);
+  }
+
+  return y + 6;
+}
+
 const BAR_BLOCK = 122;
 
 function drawLayouts(
@@ -437,7 +488,7 @@ function drawLayouts(
   const withBars = cost.lines.filter((entry) => entry.result.bars.length > 0);
   if (withBars.length === 0) return top;
 
-  let y = sectionTitle(ctx, top, "Cutting layout — how to cut each bar");
+  let y = sectionTitle(ctx, top, "Cut plan — how to cut each bar");
   const trackW = WIDTH - PAD * 2;
 
   for (const entry of withBars) {

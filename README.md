@@ -1,4 +1,4 @@
-# Kerf — Dragon's Den Take-Off
+# Kerf — Material Take-Off
 
 A cut-list, material-pricing and take-off tool that runs on an iPhone and on a
 desktop PC, ported from the `Kerf_Cutting_Calulator_.xlsx` workbook
@@ -12,33 +12,39 @@ It answers four questions, in the order they matter on a job:
 3. **What did I base that price on?** — every price keeps its receipt.
 4. **How do I get it to someone?** — one tap to a PNG, CSV or JSON.
 
-## The four screens
-
-Named for the user's benefit; the exported report stays plain and businesslike,
-because that is the artefact that leaves the building.
+## The five screens
 
 | Screen | What it is |
 | --- | --- |
-| **The Den** | Job details, stock & saw settings, and the pieces to cut |
-| **The Scales** | The estimate — bars, cost, waste, and the pricing confidence |
-| **Talons** | The cutting layout, bar by bar |
-| **The Hoard** | The material library: prices and the proof behind them |
+| **Job** | Job details, stock & saw settings, and the pieces to cut |
+| **Estimate** | What to buy, what it costs, and the sums behind both |
+| **Cut plan** | How to cut each bar, in order |
+| **Materials** | Prices, and the proof behind each one |
+| **Guide** | How every calculation works, in plain English |
 
-Two levels of detail, switched in the Den:
+Two levels of detail, switched on the Job screen:
 
-- **🔥 Fire Breath** — *quick estimate*. One material, no mark-up machinery,
-  fewest possible fields.
-- **👁 Dragon's Eye** — *detailed take-off*. Many materials in one job, extras
-  (labour, finishing, delivery), contingency, markup and tax.
+- **Quick estimate** — one material, no mark-up machinery, fewest fields.
+- **Detailed take-off** — many materials in one job, extras (labour, finishing,
+  delivery), contingency, markup and tax.
 
-Switching between them never loses data — Fire Breath just costs the first line
-and hides the rest.
+Switching between them never loses data — quick estimate just costs the first
+material and hides the rest.
 
-Export is the **Smoke Signal** button.
+## Showing the working
+
+Every figure can be opened up to show how it was reached: the sum with the real
+numbers substituted in, the answer, and one line on why it matters. The Guide
+screen walks the whole method step by step using the numbers currently in the
+job, and the exported report carries a "How these numbers were worked out"
+section so the person receiving it can check the figures without the app.
+
+All of that text comes from one module (`lib/explain.ts`), so the screens, the
+report and the help can never drift from each other or from the engine.
 
 ## Pricing, and the proof behind it
 
-The Hoard stores each material once — name, category, default stock length,
+The Materials screen stores each material once — name, category, default stock length,
 kerf and end trim — and a full **price history**. Every price record carries:
 
 - the amount and its basis (per bar / per foot / per metre / per inch),
@@ -153,11 +159,12 @@ environment variables and no backend are required.
 
 ```
 app/            Next.js App Router shell, metadata, PWA wiring
-components/     The four screens, the export sheet, shared inputs
+components/     The five screens, the export sheet, shared inputs
 lib/types.ts    Domain model: Project, TakeoffLine, Material, PriceRecord
 lib/pack.ts     The cutting-stock engine (the port of the workbook)
 lib/pricing.ts  Costing, roll-up, confidence and staleness
 lib/store.ts    Persistence, with migration from the pre-pricing release
+lib/explain.ts  Plain-English explanations of every calculation
 lib/report.ts   Canvas renderer for the shareable PNG
 lib/exports.ts  CSV and versioned JSON
 lib/attachments.ts  IndexedDB storage for proof-of-price files
