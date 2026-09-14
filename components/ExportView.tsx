@@ -7,6 +7,7 @@ import { Card, Note, SectionTitle, Segmented } from "./ui";
 import {
   buildCsv,
   buildCutListCsv,
+  buildPartsCsv,
   buildPurchaseCsv,
   downloadText,
   slug,
@@ -15,14 +16,26 @@ import { formatMoney, type ProjectCost } from "@/lib/pricing";
 import { buildPurchasePlan, defaultConfig, type PurchaseConfig } from "@/lib/purchase";
 import { renderPurchaseList } from "@/lib/purchaseReport";
 import {
+  DEFAULT_CUT_SHEET,
+  renderCutSheet,
+  type CutOrder,
+  type CutSheetConfig,
+} from "@/lib/cutSheet";
+import {
   DEFAULT_REPORT_OPTIONS,
   canvasToBlob,
   renderReport,
   type ReportOptions,
 } from "@/lib/report";
-import type { Project } from "@/lib/types";
+import type { Material, Project } from "@/lib/types";
 
-type Sheet = "purchase" | "takeoff";
+type Sheet = "purchase" | "cut" | "takeoff";
+
+const SHEET_LABEL: Record<Sheet, string> = {
+  purchase: "Purchase list",
+  cut: "Cut list",
+  takeoff: "Take-off report",
+};
 type Status = "rendering" | "ready" | "error";
 
 /**
@@ -36,16 +49,24 @@ type Status = "rendering" | "ready" | "error";
 export default function ExportView({
   project,
   cost,
+  materials,
   patchProject,
 }: {
   project: Project;
   cost: ProjectCost;
+  materials: Material[];
   patchProject: (changes: Partial<Project>) => void;
 }) {
   const [sheet, setSheet] = useState<Sheet>("purchase");
   const [reportOptions, setReportOptions] = useState<ReportOptions>(DEFAULT_REPORT_OPTIONS);
   const [purchaseConfig, setPurchaseConfig] = useState<PurchaseConfig>(() =>
     defaultConfig(project, cost),
+  );
+  const [cutConfig, setCutConfig] = useState<CutSheetConfig>(DEFAULT_CUT_SHEET);
+
+  const materialNames = useMemo(
+    () => Object.fromEntries(materials.map((material) => [material.id, material.name])),
+    [materials],
   );
 
   const [status, setStatus] = useState<Status>("rendering");
@@ -60,7 +81,11 @@ export default function ExportView({
 
   const base = slug(project.name || "take-off");
   const fileName =
-    sheet === "purchase" ? `${base}-purchase-list.png` : `${base}-takeoff.png`;
+    sheet === "purchase"
+      ? `${base}-purchase-list.png`
+      : sheet === "cut"
+        ? `${base}-cut-list.png`
+        : `${base}-takeoff.png`;
 
   useEffect(() => {
     let cancelled = false;
@@ -72,7 +97,9 @@ export default function ExportView({
         const canvas =
           sheet === "purchase"
             ? renderPurchaseList(project, plan, purchaseConfig)
-            : renderReport(project, cost, reportOptions);
+            : sheet === "cut"
+              ? renderCutSheet(project, cutConfig, materialNames)
+              : renderReport(project, cost, reportOptions);
         void canvasToBlob(canvas).then((blob) => {
           if (!cancelled) blobRef.current = blob;
         });
@@ -90,7 +117,7 @@ export default function ExportView({
       cancelled = true;
       clearTimeout(timer);
     };
-  }, [sheet, project, cost, reportOptions, plan, purchaseConfig]);
+  }, [sheet, project, cost, reportOptions, plan, purchaseConfig, cutConfig, materialNames]);
 
   const share = async () => {
     const blob = blobRef.current;
@@ -137,7 +164,7 @@ export default function ExportView({
         {/* eslint-disable-next-line @next/next/no-img-element */}
         <img
           src={dataUrl}
-          alt={sheet === "purchase" ? "Purchase list" : "Take-off report"}
+          alt={SHEET_LABEL[sheet]}
           className="mx-auto w-full rounded-xl shadow-2xl ring-1 ring-white/10"
         />
       </div>
@@ -147,10 +174,7 @@ export default function ExportView({
     return (
       <Card>
         <SectionTitle>Export</SectionTitle>
-        <Note>
-          There is nothing to put on a sheet yet. Add some parts on the Take-off screen and this
-          fills in.
-        </Note>
+        <Note>Nothing to show yet — add some parts on the Take-off screen.</Note>
       </Card>
     );
   }
@@ -165,16 +189,9 @@ export default function ExportView({
             value={sheet}
             onChange={setSheet}
             options={[
-              {
-                value: "purchase",
-                label: "Purchase list",
-                hint: "What to buy — for whoever orders it",
-              },
-              {
-                value: "takeoff",
-                label: "Take-off report",
-                hint: "Full working — for your file or a quote",
-              },
+              { value: "purchase", label: "Purchase list", hint: "What to buy" },
+              { value: "cut", label: "Cut list", hint: "What to cut, for the shop" },
+              { value: "takeoff", label: "Take-off report", hint: "Full working, for a quote" },
             ]}
           />
         </div>
@@ -220,6 +237,8 @@ export default function ExportView({
               config={purchaseConfig}
               onChange={setPurchaseConfig}
             />
+          ) : sheet === "cut" ? (
+            <CutOptions config={cutConfig} onChange={setCutConfig} />
           ) : (
             <TakeoffOptions
               options={reportOptions}
@@ -234,11 +253,18 @@ export default function ExportView({
 
           <Card>
             <SectionTitle>Also save as a spreadsheet</SectionTitle>
-            <Note>
-              For pasting into a purchase order or a shop sheet. Same numbers, no formatting.
-            </Note>
             <div className="mt-3 grid gap-2 sm:grid-cols-2">
-              {sheet === "purchase" ? (
+              {sheet === "cut" ? (
+                <button
+                  type="button"
+                  className="btn-ghost !min-h-10 text-xs sm:col-span-2"
+                  onClick={() =>
+                    downloadText(`${base}-cut-list.csv`, buildPartsCsv(project, cutConfig), "text/csv")
+                  }
+                >
+                  Cut list CSV
+                </button>
+              ) : sheet === "purchase" ? (
                 <button
                   type="button"
                   className="btn-ghost !min-h-10 text-xs sm:col-span-2"
@@ -293,7 +319,6 @@ function HeaderFields({
   return (
     <Card>
       <SectionTitle>Heading</SectionTitle>
-      <Note>Typed here, these go straight onto the sheet and stay with the job.</Note>
       <div className="mt-3 grid gap-3 sm:grid-cols-2">
         <Text
           id="export-name"
@@ -356,16 +381,12 @@ function TakeoffOptions({
   return (
     <Card>
       <SectionTitle>What goes on it</SectionTitle>
-      <Note>
-        Turn a block off and it disappears from the sheet. Everything off but the table gives a
-        one-page price; everything on gives your full working file.
-      </Note>
       <div className="mt-3 space-y-1">
         <Toggle
           checked={options.includeHeadline}
           onChange={(includeHeadline) => set({ includeHeadline })}
           label="Banner across the top"
-          hint="The headline strip under the job name"
+          hint=""
         />
         {options.includeHeadline ? (
           <div className="pl-7 pb-1">
@@ -379,9 +400,8 @@ function TakeoffOptions({
               placeholder={headlinePlaceholder}
               onChange={(event) => set({ headline: event.target.value })}
             />
-            <p className="mt-1 text-xs leading-snug text-slate-500">
-              Leave it empty for the figure above. Or write your own — “Budget estimate, not a
-              quotation”, “Revised after drawing change 08 Sep”, “Materials only, labour to follow”.
+            <p className="mt-1 text-xs text-slate-500">
+              e.g. “Budget estimate, not a quotation”
             </p>
           </div>
         ) : null}
@@ -389,38 +409,119 @@ function TakeoffOptions({
           checked={options.includeStats}
           onChange={(includeStats) => set({ includeStats })}
           label="Key figures"
-          hint="Bars, pieces, utilisation and material cost across the top"
+          hint=""
         />
         <Toggle
           checked={options.includeRollup}
           onChange={(includeRollup) => set({ includeRollup })}
           label="Cost build-up"
-          hint="Materials, extras, contingency, markup and tax, in order"
+          hint=""
         />
         <Toggle
           checked={options.includeEvidence}
           onChange={(includeEvidence) => set({ includeEvidence })}
           label="Where the prices came from"
-          hint="Supplier, quote number and date behind every price"
+          hint=""
         />
         <Toggle
           checked={options.includeWorking}
           onChange={(includeWorking) => set({ includeWorking })}
           label="The calculations"
-          hint="Each figure with the sum that produced it"
+          hint=""
         />
         <Toggle
           checked={options.includeLayout}
           onChange={(includeLayout) => set({ includeLayout })}
           label="Cutting diagrams"
-          hint="A to-scale picture of every bar and where the cuts fall"
+          hint=""
         />
         <Toggle
           checked={options.footer === "order"}
           onChange={(on) => set({ footer: on ? "order" : "none" })}
-          label="Order summary at the bottom"
-          hint="What to buy per material, and the total footage"
+          label="Order summary"
+          hint=""
         />
+      </div>
+    </Card>
+  );
+}
+
+function CutOptions({
+  config,
+  onChange,
+}: {
+  config: CutSheetConfig;
+  onChange: (config: CutSheetConfig) => void;
+}) {
+  const set = (changes: Partial<CutSheetConfig>) => onChange({ ...config, ...changes });
+
+  return (
+    <Card>
+      <SectionTitle>The list</SectionTitle>
+      <div className="mt-3 space-y-4">
+        <div>
+          <label className="label" htmlFor="cut-order">
+            Order
+          </label>
+          <select
+            id="cut-order"
+            className="field"
+            value={config.order}
+            onChange={(event) => set({ order: event.target.value as CutOrder })}
+          >
+            <option value="longest">Longest first</option>
+            <option value="entered">As you typed it</option>
+          </select>
+        </div>
+
+        <div className="space-y-1">
+          <Toggle
+            checked={config.boxPerPiece}
+            onChange={(boxPerPiece) => set({ boxPerPiece })}
+            label="A box per piece"
+            hint="Tick each one off, not just the row"
+          />
+          <Toggle
+            checked={config.showTotals}
+            onChange={(showTotals) => set({ showTotals })}
+            label="Totals per material"
+            hint=""
+          />
+          <Toggle
+            checked={config.showHeadline}
+            onChange={(showHeadline) => set({ showHeadline })}
+            label="Banner across the top"
+            hint=""
+          />
+        </div>
+
+        {config.showHeadline ? (
+          <div>
+            <label className="label" htmlFor="cut-headline">
+              What it says
+            </label>
+            <input
+              id="cut-headline"
+              className="field"
+              value={config.headline}
+              placeholder="37 pieces to cut"
+              onChange={(event) => set({ headline: event.target.value })}
+            />
+          </div>
+        ) : null}
+
+        <div>
+          <label className="label" htmlFor="cut-note">
+            Note for the shop
+          </label>
+          <input
+            id="cut-note"
+            className="field"
+            value={config.note}
+            placeholder="Deburr all ends. Square cuts unless noted."
+            onChange={(event) => set({ note: event.target.value })}
+          />
+        </div>
       </div>
     </Card>
   );
@@ -447,7 +548,7 @@ function Toggle({
       />
       <span className="min-w-0">
         <span className="block text-sm font-semibold text-slate-100">{label}</span>
-        <span className="block text-xs leading-snug text-slate-500">{hint}</span>
+        {hint ? <span className="block text-xs leading-snug text-slate-500">{hint}</span> : null}
       </span>
     </label>
   );

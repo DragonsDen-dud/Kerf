@@ -56,10 +56,7 @@ export default function PurchaseOptions({
       {/* Which lengths to offer */}
       <section>
         <h3 className="label">Lengths your supplier might stock</h3>
-        <Note>
-          Tick every length you could actually buy. The sheet compares them and marks the one that
-          wastes least — or costs least, once prices are in.
-        </Note>
+        <Note>Tick what you could actually buy. The leanest is marked.</Note>
         <div className="mt-2 flex flex-wrap gap-2">
           {allCandidates.map((length) => {
             const active = config.candidates.some((c) => Math.abs(c - length) < 1e-6);
@@ -100,10 +97,7 @@ export default function PurchaseOptions({
       {/* Per material */}
       <section>
         <h3 className="label">Each material</h3>
-        <Note>
-          Pick what you are ordering and, if you know it, type the price. Prices typed here are used
-          for this sheet only — they are not saved to your material library.
-        </Note>
+        <Note>Prices typed here are for this sheet only.</Note>
 
         <div className="mt-3 space-y-3">
           {plan.lines.map((line) => {
@@ -234,7 +228,7 @@ export default function PurchaseOptions({
             checked={config.showHeadline}
             onChange={(showHeadline) => patch({ showHeadline })}
             label="Banner across the top"
-            hint="The headline strip under the job name."
+            hint=""
           />
           {config.showHeadline ? (
             <div className="pl-7">
@@ -248,9 +242,8 @@ export default function PurchaseOptions({
                 placeholder={`${orderLength(plan.purchasedLength, project.unit)} of material to buy`}
                 onChange={(event) => patch({ headline: event.target.value })}
               />
-              <p className="mt-1 text-xs leading-snug text-slate-500">
-                Leave it empty for the footage above. Or write your own — “Please quote and confirm
-                lead time”, “Material for BUCA — order Monday”, “Prices only, do not order yet”.
+              <p className="mt-1 text-xs text-slate-500">
+                e.g. “Please quote and confirm lead time”
               </p>
             </div>
           ) : null}
@@ -258,19 +251,19 @@ export default function PurchaseOptions({
             checked={config.showCost}
             onChange={(showCost) => patch({ showCost })}
             label="Prices and costs"
-            hint="Leave off for a quantities-only list."
+            hint=""
           />
           <Toggle
             checked={config.showWaste}
             onChange={(showWaste) => patch({ showWaste })}
             label="Waste percentage per option"
-            hint="Helps justify why the longer bar is worth it."
+            hint=""
           />
           <Toggle
             checked={config.showCutSummary}
             onChange={(showCutSummary) => patch({ showCutSummary })}
             label="What each material gets cut into"
-            hint="Useful if the supplier is cutting for you."
+            hint=""
           />
         </div>
       </section>

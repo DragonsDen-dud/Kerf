@@ -138,6 +138,19 @@ Values display to the nearest 1/16". Millimetres are supported via the units
 toggle (`1200`, `120cm`, `1.2m`); everything is stored internally in inches so
 switching units never reinterprets an existing take-off.
 
+## Three sheets
+
+| Sheet | Goes to | What it is |
+| --- | --- | --- |
+| **Purchase list** | Whoever buys the steel | Footage to order, every stock length side by side, leanest marked |
+| **Cut list** | The shop | Your parts exactly as entered — qty × length × description, with a box to tick per piece |
+| **Take-off report** | Your file, or a quote | The full working: bars, costs, price evidence, calculations, cut plan |
+
+The cut list is deliberately *not* the bar-by-bar plan. The shop decides how to
+get the pieces out of a bar; they need to know what pieces to make. It carries
+no explaining at all — just the list, set large enough to read at arm's length,
+ordered longest-first or exactly as you typed it.
+
 ## The export screen
 
 Export is a screen, not a dialog, and the preview on it **is** the finished
@@ -148,7 +161,7 @@ the PNG; either way you get what you are looking at.
 The heading — job, client, reference, prepared by, and the note on the sheet —
 is edited right there and stays with the job.
 
-**Take-off report** — your full working. Every block switches on and off
+**Take-off report** — every block switches on and off
 independently: the banner, the key figures, the cost build-up, where the prices
 came from, the calculations, the cutting diagrams, and an order summary at the
 bottom. Everything off but the table gives a one-page price; everything on

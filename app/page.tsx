@@ -54,7 +54,7 @@ const NAV: NavEntry[] = [
   {
     id: "export",
     label: "Export",
-    plain: "Build the purchase list or the take-off sheet",
+    plain: "Build the purchase list, the cut list or the take-off sheet",
     icon: "M12 16V4m0 0L8 8m4-4 4 4M4 15v3a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-3",
   },
   {
@@ -129,7 +129,12 @@ export default function Home() {
           onOpenGuide={() => setView("guide")}
         />
       ) : view === "export" ? (
-        <ExportView project={project} cost={cost} patchProject={workspace.patchProject} />
+        <ExportView
+          project={project}
+          cost={cost}
+          materials={materials}
+          patchProject={workspace.patchProject}
+        />
       ) : view === "cutplan" ? (
         <CutPlanView project={project} cost={cost} />
       ) : view === "materials" ? (

@@ -8,6 +8,7 @@
  * number.
  */
 
+import type { CutSheetConfig } from "./cutSheet";
 import { extraCost, formatDate, type ProjectCost } from "./pricing";
 import {
   buyLength,
@@ -350,4 +351,30 @@ export function buildPurchaseCsv(
   if (config.note.trim()) rows.push([], ["Note", config.note.trim()]);
 
   return rows.map((row) => row.map(csvCell).join(",")).join("\r\n");
+}
+
+/**
+ * The shop cut list as rows: one per part, in the same order as the printed
+ * sheet. Deliberately the parts you entered, not the bar-by-bar plan.
+ */
+export function buildPartsCsv(project: Project, config: CutSheetConfig): string {
+  const rows: string[][] = [["Material", "Qty", "Length", "Unit", "Description", "Cut"]];
+
+  for (const line of project.lines) {
+    const parts = line.parts.filter((part) => part.length > 0 && part.qty > 0);
+    if (config.order === "longest") parts.sort((a, b) => b.length - a.length);
+
+    for (const part of parts) {
+      rows.push([
+        line.name || "Parts",
+        String(part.qty),
+        formatValue(part.length, project.unit),
+        unitAbbr(project.unit),
+        part.label,
+        "",
+      ]);
+    }
+  }
+
+  return rows.map((row) => row.map(csvCell).join(",")).join("\n");
 }

@@ -184,10 +184,11 @@ async function newPage(context) {
   await page.waitForSelector("img[alt='Purchase list']", { timeout: 20000 });
   await page.waitForTimeout(600);
 
-  // Both sheets are offered up front, not hidden behind a step.
+  // All three sheets are offered up front, not hidden behind a step.
   const sheets = await page.locator("main").innerText();
-  check(sheets.includes("Purchase list"), "expected the purchase list option");
-  check(sheets.includes("Take-off report"), "expected the take-off report option");
+  for (const label of ["Purchase list", "Cut list", "Take-off report"]) {
+    check(sheets.includes(label), `expected the ${label} option`);
+  }
 
   const before = await page.getAttribute("img[alt='Purchase list']", "src");
   check(before?.startsWith("data:image/png;base64,"), "purchase list PNG was not produced");
@@ -228,8 +229,40 @@ async function newPage(context) {
   check(priced !== toggled, "the sheet should redraw when a price is typed");
   await page.screenshot({ path: `${OUT}/desktop-4-purchase.png` });
 
-  // The take-off report and its block switches.
-  await page.locator("button", { hasText: "Take-off report" }).first().click();
+  /* --- the shop cut list -------------------------------------------------- */
+
+  await page.locator("main button", { hasText: "Cut list" }).first().click();
+  await page.waitForSelector("img[alt='Cut list']", { timeout: 20000 });
+  await page.waitForTimeout(700);
+  const cut = await page.getAttribute("img[alt='Cut list']", "src");
+  check(cut?.startsWith("data:image/png;base64,"), "cut list PNG was not produced");
+  fs.writeFileSync(`${OUT}/cut-list.png`, Buffer.from(cut.split(",")[1], "base64"));
+
+  const cutPanel = await page.locator("main").innerText();
+  for (const label of ["Order", "A box per piece", "Totals per material"]) {
+    // Some labels render uppercase, so match without regard to case.
+    check(
+      cutPanel.toLowerCase().includes(label.toLowerCase()),
+      `expected the cut list control: ${label}`,
+    );
+  }
+
+  // As-entered ordering is a different sheet from longest-first.
+  await page.selectOption("#cut-order", "entered");
+  await page.waitForTimeout(900);
+  const asEntered = await page.getAttribute("img[alt='Cut list']", "src");
+  check(asEntered !== cut, "changing the order should redraw the cut list");
+
+  // One box per piece makes a visibly different sheet from one box per row.
+  await page.locator("label", { hasText: "A box per piece" }).click();
+  await page.waitForTimeout(900);
+  const oneBox = await page.getAttribute("img[alt='Cut list']", "src");
+  check(oneBox !== asEntered, "the tick boxes should redraw the cut list");
+  await page.screenshot({ path: `${OUT}/desktop-4b-cutlist.png` });
+
+  /* --- the take-off report ------------------------------------------------ */
+
+  await page.locator("main button", { hasText: "Take-off report" }).first().click();
   await page.waitForSelector("img[alt='Take-off report']", { timeout: 20000 });
   await page.waitForTimeout(700);
   const report = await page.getAttribute("img[alt='Take-off report']", "src");
@@ -243,7 +276,7 @@ async function newPage(context) {
     "Where the prices came from",
     "The calculations",
     "Cutting diagrams",
-    "Order summary at the bottom",
+    "Order summary",
   ]) {
     check(switches.includes(label), `expected a switch for ${label}`);
   }
